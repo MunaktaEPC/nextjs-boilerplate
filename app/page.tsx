@@ -7,11 +7,11 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// ★ ご提示いただいた画像リンクをロゴに設定しました
 const LOGO_URL = "https://wkvetwjywdkwairqztsb.supabase.co/storage/v1/object/public/images/0.7302238554901188.png";
 
 export default function MunakataBbsAndBlog() {
-  const [view, setView] = useState<'bbs' | 'blog' | 'profile'>('bbs');
+  // viewにブログ関連の画面を追加
+  const [view, setView] = useState<'bbs' | 'blog_list' | 'blog_write' | 'blog_read' | 'profile'>('bbs');
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   
@@ -21,12 +21,18 @@ export default function MunakataBbsAndBlog() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
 
-  // 入力用
+  // 入力用共通（BBS & Blog）
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [coverPreview, setCoverPreview] = useState(''); // ブログカバー画像プレビュー
+  
+  // 返信用
   const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
   const [replyContent, setReplyContent] = useState('');
+
+  // ブログ閲覧用
+  const [activeArticle, setActiveArticle] = useState<any>(null);
 
   useEffect(() => {
     const savedName = localStorage.getItem('munakata_name');
@@ -73,20 +79,37 @@ export default function MunakataBbsAndBlog() {
     setLoading(false);
   }
 
-  async function handlePostSubmit() {
+  // 掲示板への投稿
+  async function handleBbsSubmit() {
     if (!content) return;
     setLoading(true);
     let imageUrl = imageFile ? await uploadImage(imageFile) : '';
-    // postsテーブルに投稿。ブログか掲示板かを識別するタグ（category）を入れることも可能ですが、
-    // 今はシンプルに全ての投稿を掲示板（bbs）として扱います。
     await supabase.from('posts').insert([{ 
-      title, 
-      content, 
-      image_url: imageUrl,
-      author_name: profileName,
-      author_avatar: profileAvatar
+      title, content, image_url: imageUrl,
+      author_name: profileName, author_avatar: profileAvatar,
+      category: 'bbs' // カテゴリをBBSに指定
     }]);
     setTitle(''); setContent(''); setImageFile(null);
+    fetchData();
+    setLoading(false);
+  }
+
+  // ブログへの投稿
+  async function handleBlogSubmit() {
+    if (!title || !content) {
+      alert("タイトルと本文は必須です！");
+      return;
+    }
+    setLoading(true);
+    let imageUrl = imageFile ? await uploadImage(imageFile) : '';
+    await supabase.from('posts').insert([{ 
+      title, content, image_url: imageUrl,
+      author_name: profileName, author_avatar: profileAvatar,
+      category: 'blog' // カテゴリをブログに指定
+    }]);
+    setTitle(''); setContent(''); setImageFile(null); setCoverPreview('');
+    alert("ブログ記事を公開しました！");
+    setView('blog_list');
     fetchData();
     setLoading(false);
   }
@@ -95,18 +118,26 @@ export default function MunakataBbsAndBlog() {
     if (!replyContent) return;
     setLoading(true);
     await supabase.from('posts').insert([{ 
-      content: replyContent, 
-      parent_id: parentId,
-      author_name: profileName,
-      author_avatar: profileAvatar
+      content: replyContent, parent_id: parentId,
+      author_name: profileName, author_avatar: profileAvatar,
+      category: 'bbs'
     }]);
     setReplyContent(''); setReplyTargetId(null);
     fetchData();
     setLoading(false);
   }
 
+  // データの振り分け
   const mainThreads = posts.filter(p => !p.parent_id);
+  const bbsThreads = mainThreads.filter(p => p.category !== 'blog');
+  const blogArticles = mainThreads.filter(p => p.category === 'blog');
   const getReplies = (parentId: string) => posts.filter(p => p.parent_id === parentId).reverse();
+
+  // ブログ記事を読む
+  const openArticle = (article: any) => {
+    setActiveArticle(article);
+    setView('blog_read');
+  };
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#fdfdfd', color: '#333' }}>
@@ -121,7 +152,6 @@ export default function MunakataBbsAndBlog() {
           </div>
         </div>
         
-        {/* 右上のプロフィール */}
         <div onClick={() => setView('profile')} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '8px 15px', backgroundColor: '#f3eef7', borderRadius: '30px', border: '1px solid #dcd0ea' }}>
           <img src={profileAvatar || 'https://via.placeholder.com/35?text=Img'} style={{ width: '35px', height: '35px', borderRadius: '50%', objectFit: 'cover' }} />
           <span style={{ fontWeight: 'bold', color: '#5a3d8a' }}>{profileName}</span>
@@ -129,15 +159,15 @@ export default function MunakataBbsAndBlog() {
         </div>
       </header>
 
-      {/* ナビゲーション：掲示板とブログに変更 */}
-      <nav style={{ padding: '20px 40px', display: 'flex', gap: '15px' }}>
-        <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'bbs' ? '#5a3d8a' : '#eee', color: view === 'bbs' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>掲示板</button>
-        <button onClick={() => setView('blog')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'blog' ? '#5a3d8a' : '#eee', color: view === 'blog' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>ブログ</button>
+      {/* ナビゲーション */}
+      <nav style={{ padding: '20px 40px', display: 'flex', gap: '15px', borderBottom: '1px solid #eee', backgroundColor: '#fff' }}>
+        <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'bbs' ? '#5a3d8a' : '#eee', color: view === 'bbs' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>💬 掲示板</button>
+        <button onClick={() => setView('blog_list')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('blog') ? '#5a3d8a' : '#eee', color: view.startsWith('blog') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>🖋️ ブログ</button>
       </nav>
 
-      <main style={{ maxWidth: '1000px', margin: '0 auto', padding: '0 20px' }}>
+      <main style={{ maxWidth: view.startsWith('blog') ? '800px' : '1000px', margin: '0 auto', padding: '30px 20px' }}>
         
-        {/* プロフィール設定 */}
+        {/* ================= プロフィール設定 ================= */}
         {view === 'profile' && (
           <section style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd' }}>
             <h2 style={{ color: '#5a3d8a', marginTop: 0 }}>⚙️ プロフィールの設定</h2>
@@ -159,7 +189,7 @@ export default function MunakataBbsAndBlog() {
           </section>
         )}
 
-        {/* 掲示板画面（スレッド形式） */}
+        {/* ================= 掲示板画面 ================= */}
         {view === 'bbs' && (
           <div>
             <section style={{ backgroundColor: '#f3eef7', padding: '25px', borderRadius: '15px', border: '1px solid #dcd0ea', marginBottom: '40px' }}>
@@ -168,13 +198,13 @@ export default function MunakataBbsAndBlog() {
               <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文" style={{ width: '100%', height: '100px', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <input type="file" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
-                <button onClick={handlePostSubmit} disabled={loading} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>投稿する</button>
+                <button onClick={handleBbsSubmit} disabled={loading} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>投稿する</button>
               </div>
             </section>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-              {mainThreads.map(thread => (
-                <article key={thread.id} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              {bbsThreads.map(thread => (
+                <article key={thread.id} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '12px', overflow: 'hidden' }}>
                   <div style={{ backgroundColor: '#f8f5fb', padding: '15px 20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       <img src={thread.author_avatar || 'https://via.placeholder.com/40'} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
@@ -204,7 +234,7 @@ export default function MunakataBbsAndBlog() {
                     {replyTargetId === thread.id && (
                       <div style={{ padding: '20px', backgroundColor: '#fff', borderTop: '2px solid #5a3d8a' }}>
                         <textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} placeholder="返信を書く..." style={{ width: '100%', height: '70px', padding: '10px', marginBottom: '10px' }} />
-                        <button onClick={() => handleReplySubmit(thread.id)} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '5px 20px', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>返信を送信</button>
+                        <button onClick={() => handleReplySubmit(thread.id)} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '5px 20px', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>送信</button>
                       </div>
                     )}
                   </div>
@@ -214,20 +244,96 @@ export default function MunakataBbsAndBlog() {
           </div>
         )}
 
-        {/* ブログ画面（記事リスト形式のイメージ） */}
-        {view === 'blog' && (
-          <div style={{ padding: '40px 0', textAlign: 'center' }}>
-            <h2 style={{ color: '#5a3d8a' }}>🖋️ オフィシャルブログ</h2>
-            <p style={{ color: '#666' }}>ここでは管理人の最新記事が公開されます。（準備中）</p>
-            <div style={{ marginTop: '30px', display: 'grid', gap: '20px' }}>
-              {/* ブログ的なカードデザインのサンプル */}
-              <div style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '10px', padding: '20px', textAlign: 'left' }}>
-                <h3 style={{ color: '#b91c1c' }}>MunakataEPC_BLOGへようこそ！</h3>
-                <p style={{ fontSize: '14px', color: '#444' }}>サイトのデザインを大幅にアップデートしました。掲示板での交流を楽しんでください。</p>
-                <small style={{ color: '#aaa' }}>2024.03.20</small>
-              </div>
+        {/* ================= ブログ機能：記事一覧 ================= */}
+        {view === 'blog_list' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+              <h2 style={{ color: '#333', margin: 0 }}>記事一覧</h2>
+              <button onClick={() => { setTitle(''); setContent(''); setImageFile(null); setCoverPreview(''); setView('blog_write'); }} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 20px', border: 'none', borderRadius: '20px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
+                ＋ 記事を書く
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gap: '25px' }}>
+              {blogArticles.map(article => (
+                <article key={article.id} onClick={() => openArticle(article)} style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', transition: 'box-shadow 0.2s', display: 'flex', flexDirection: 'column' }} onMouseOver={e => e.currentTarget.style.boxShadow = '0 4px 15px rgba(0,0,0,0.05)'} onMouseOut={e => e.currentTarget.style.boxShadow = 'none'}>
+                  {article.image_url && (
+                    <img src={article.image_url} alt="Cover" style={{ width: '100%', height: '200px', objectFit: 'cover' }} />
+                  )}
+                  <div style={{ padding: '20px' }}>
+                    <h3 style={{ margin: '0 0 10px 0', fontSize: '22px', color: '#333' }}>{article.title}</h3>
+                    <p style={{ margin: '0 0 15px 0', color: '#666', fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                      {article.content}
+                    </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <img src={article.author_avatar || 'https://via.placeholder.com/30'} style={{ width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' }} />
+                      <span style={{ fontSize: '14px', color: '#555', fontWeight: 'bold' }}>{article.author_name}</span>
+                      <span style={{ fontSize: '13px', color: '#aaa', marginLeft: 'auto' }}>{new Date(article.created_at).toLocaleDateString('ja-JP')}</span>
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {blogArticles.length === 0 && <p style={{ textAlign: 'center', color: '#888', padding: '50px' }}>まだ記事がありません。最初の記事を書いてみましょう！</p>}
             </div>
           </div>
+        )}
+
+        {/* ================= ブログ機能：執筆画面 (note風エディタ) ================= */}
+        {view === 'blog_write' && (
+          <div style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd', minHeight: '600px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
+              <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px' }}>← 戻る</button>
+              <button onClick={handleBlogSubmit} disabled={loading} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '30px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}>
+                {loading ? '公開中...' : '公開する'}
+              </button>
+            </div>
+
+            {/* カバー画像設定 */}
+            <div style={{ marginBottom: '20px', position: 'relative', backgroundColor: '#f9f9f9', border: '1px dashed #ccc', borderRadius: '10px', height: coverPreview ? 'auto' : '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+              {coverPreview ? (
+                <img src={coverPreview} style={{ width: '100%', maxHeight: '400px', objectFit: 'cover' }} />
+              ) : (
+                <span style={{ color: '#888' }}>📷 カバー画像を追加</span>
+              )}
+              <input type="file" accept="image/*" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) { setImageFile(file); setCoverPreview(URL.createObjectURL(file)); }
+              }} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
+            </div>
+
+            {/* タイトル入力（枠線なし） */}
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="記事のタイトル" style={{ width: '100%', fontSize: '32px', fontWeight: 'bold', border: 'none', borderBottom: '1px solid #eee', padding: '15px 0', marginBottom: '20px', outline: 'none', color: '#333' }} />
+
+            {/* 本文入力（枠線なし） */}
+            <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="ここに本文を書く..." style={{ width: '100%', minHeight: '400px', fontSize: '18px', lineHeight: '1.8', border: 'none', outline: 'none', resize: 'vertical', color: '#333' }} />
+          </div>
+        )}
+
+        {/* ================= ブログ機能：閲覧画面 (note風デザイン) ================= */}
+        {view === 'blog_read' && activeArticle && (
+          <article style={{ backgroundColor: '#fff', padding: '40px 0', borderRadius: '15px' }}>
+            <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px', marginBottom: '20px', marginLeft: '20px' }}>← 記事一覧に戻る</button>
+            
+            {activeArticle.image_url && (
+              <img src={activeArticle.image_url} alt="Cover" style={{ width: '100%', maxHeight: '450px', objectFit: 'cover', borderRadius: '10px', marginBottom: '30px' }} />
+            )}
+            
+            <div style={{ padding: '0 40px' }}>
+              <h1 style={{ fontSize: '36px', margin: '0 0 20px 0', color: '#222', lineHeight: '1.4' }}>{activeArticle.title}</h1>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '40px', paddingBottom: '20px', borderBottom: '1px solid #eee' }}>
+                <img src={activeArticle.author_avatar || 'https://via.placeholder.com/40'} style={{ width: '45px', height: '45px', borderRadius: '50%', objectFit: 'cover' }} />
+                <div>
+                  <div style={{ fontWeight: 'bold', fontSize: '16px', color: '#333' }}>{activeArticle.author_name}</div>
+                  <div style={{ fontSize: '13px', color: '#888' }}>{new Date(activeArticle.created_at).toLocaleString('ja-JP')}</div>
+                </div>
+              </div>
+
+              <div style={{ fontSize: '18px', lineHeight: '2.0', color: '#333', letterSpacing: '0.03em', whiteSpace: 'pre-wrap' }}>
+                {activeArticle.content}
+              </div>
+            </div>
+          </article>
         )}
 
       </main>
