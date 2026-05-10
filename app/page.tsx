@@ -18,6 +18,10 @@ export default function MunakataBlog() {
   // プロフィール用ステート（ブラウザに保存）
   const [profileName, setProfileName] = useState('名無しさん');
   const [profileAvatar, setProfileAvatar] = useState('');
+  
+  // アイコン画像アップロード用
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState('');
 
   // 掲示板入力用
   const [title, setTitle] = useState('');
@@ -44,13 +48,7 @@ export default function MunakataBlog() {
     if (data) setPosts(data);
   }
 
-  // プロフィールの保存
-  function saveProfile() {
-    localStorage.setItem('munakata_name', profileName);
-    localStorage.setItem('munakata_avatar', profileAvatar);
-    alert("プロフィールを保存しました！以降の投稿に反映されます。");
-  }
-
+  // 画像をSupabaseにアップロードしてURLを返す共通関数
   async function uploadImage(file: File) {
     const fileName = `${Math.random()}.${file.name.split('.').pop()}`;
     const { data } = await supabase.storage.from('images').upload(fileName, file);
@@ -59,6 +57,30 @@ export default function MunakataBlog() {
       return pub.publicUrl;
     }
     return '';
+  }
+
+  // プロフィールの保存（画像アップロード込み）
+  async function saveProfile() {
+    setLoading(true);
+    let newAvatarUrl = profileAvatar;
+
+    // 新しい画像が選択されていればアップロード
+    if (avatarFile) {
+      const uploadedUrl = await uploadImage(avatarFile);
+      if (uploadedUrl) {
+        newAvatarUrl = uploadedUrl;
+        setProfileAvatar(newAvatarUrl);
+      }
+    }
+
+    localStorage.setItem('munakata_name', profileName);
+    localStorage.setItem('munakata_avatar', newAvatarUrl);
+    
+    setAvatarFile(null);
+    setAvatarPreview('');
+    alert("プロフィールを保存しました！");
+    setView('bbs'); // 保存したら自動でブログ画面に戻す
+    setLoading(false);
   }
 
   // 新規スレッド投稿
@@ -70,8 +92,8 @@ export default function MunakataBlog() {
       title, 
       content, 
       image_url: imageUrl,
-      author_name: profileName,      // 投稿者の名前を一緒に保存
-      author_avatar: profileAvatar   // 投稿者のアイコンを一緒に保存
+      author_name: profileName,
+      author_avatar: profileAvatar
     }]);
     setTitle(''); setContent(''); setImageFile(null);
     fetchData();
@@ -108,17 +130,23 @@ export default function MunakataBlog() {
             <span style={{ fontSize: '13px', color: '#666' }}>〜 公式交流ブログ 〜</span>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          {profileAvatar && <img src={profileAvatar} style={{ width: '35px', height: '35px', borderRadius: '50%', objectFit: 'cover' }} />}
-          <span style={{ fontWeight: 'bold', color: '#5a3d8a' }}>{profileName}</span>
+        
+        {/* 右上のプロフィールボタン */}
+        <div 
+          onClick={() => setView('profile')} 
+          style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '8px 15px', backgroundColor: '#f3eef7', borderRadius: '30px', border: '1px solid #dcd0ea', transition: '0.2s' }}
+          title="プロフィールを設定する"
+        >
+          <img src={profileAvatar || 'https://via.placeholder.com/35?text=No+Img'} style={{ width: '35px', height: '35px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #ccc' }} />
+          <span style={{ fontWeight: 'bold', color: '#5a3d8a', fontSize: '15px' }}>{profileName}</span>
+          <span style={{ fontSize: '18px' }}>⚙️</span>
         </div>
       </header>
 
-      {/* ナビゲーション */}
+      {/* ナビゲーション（設定ボタンは右上に移動したため削除） */}
       <nav style={{ padding: '20px 40px', display: 'flex', gap: '15px' }}>
         <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'bbs' ? '#5a3d8a' : '#eee', color: view === 'bbs' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>BLOG</button>
         <button onClick={() => setView('wiki')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'wiki' ? '#5a3d8a' : '#eee', color: view === 'wiki' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>Wiki</button>
-        <button onClick={() => setView('profile')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'profile' ? '#5a3d8a' : '#eee', color: view === 'profile' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>⚙️ プロフィール設定</button>
       </nav>
 
       <main style={{ maxWidth: '1000px', margin: '0 auto', padding: '0 20px' }}>
@@ -126,8 +154,8 @@ export default function MunakataBlog() {
         {/* プロフィール設定画面 */}
         {view === 'profile' && (
           <section style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd', boxShadow: '0 4px 15px rgba(0,0,0,0.05)' }}>
-            <h2 style={{ color: '#5a3d8a', marginTop: 0 }}>⚙️ あなたのプロフィール</h2>
-            <p style={{ color: '#666', fontSize: '14px' }}>ここで設定した名前とアイコンが、ブログでの書き込み時に表示されます。（ログイン不要・ブラウザに保存されます）</p>
+            <h2 style={{ color: '#5a3d8a', marginTop: 0 }}>⚙️ プロフィールの設定</h2>
+            <p style={{ color: '#666', fontSize: '14px' }}>ここで設定した名前とアイコンが、ブログでの書き込み時に表示されます。</p>
             
             <div style={{ marginBottom: '20px', marginTop: '30px' }}>
               <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>表示名</label>
@@ -135,12 +163,34 @@ export default function MunakataBlog() {
             </div>
             
             <div style={{ marginBottom: '30px' }}>
-              <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>アイコンのURL（任意）</label>
-              <input type="text" value={profileAvatar} onChange={(e) => setProfileAvatar(e.target.value)} placeholder="https://..." style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '16px', color: '#333' }} />
-              {profileAvatar && <img src={profileAvatar} alt="プレビュー" style={{ width: '60px', height: '60px', borderRadius: '50%', marginTop: '15px', objectFit: 'cover' }} />}
+              <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>アイコン画像</label>
+              
+              {/* ファイル選択に変更 */}
+              <input 
+                type="file" 
+                accept="image/*" 
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setAvatarFile(file);
+                    setAvatarPreview(URL.createObjectURL(file)); // プレビュー用URLを生成
+                  }
+                }} 
+                style={{ marginBottom: '15px', fontSize: '15px' }}
+              />
+              
+              {/* 現在の画像、または新しく選んだ画像のプレビューを表示 */}
+              {(avatarPreview || profileAvatar) && (
+                <div style={{ marginTop: '10px' }}>
+                  <span style={{ fontSize: '12px', color: '#888', display: 'block', marginBottom: '5px' }}>プレビュー:</span>
+                  <img src={avatarPreview || profileAvatar} alt="プレビュー" style={{ width: '70px', height: '70px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #eee' }} />
+                </div>
+              )}
             </div>
             
-            <button onClick={saveProfile} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '12px 40px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}>設定を保存する</button>
+            <button onClick={saveProfile} disabled={loading} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '12px 40px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}>
+              {loading ? '保存中...' : '設定を保存する'}
+            </button>
           </section>
         )}
 
@@ -161,10 +211,9 @@ export default function MunakataBlog() {
               {mainThreads.map(thread => (
                 <article key={thread.id} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                   
-                  {/* スレッドヘッダー（投稿者情報付き） */}
                   <div style={{ backgroundColor: '#f8f5fb', padding: '15px 20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                      <img src={thread.author_avatar || 'https://via.placeholder.com/50?text=No+Img'} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
+                      <img src={thread.author_avatar || 'https://via.placeholder.com/50?text=No+Img'} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #eee' }} />
                       <div>
                         <span style={{ fontWeight: 'bold', fontSize: '14px', color: '#555' }}>{thread.author_name || '名無しさん'}</span>
                         <h3 style={{ margin: '5px 0 0 0', color: '#b91c1c', fontSize: '18px' }}>{thread.title || '無題'}</h3>
@@ -180,7 +229,6 @@ export default function MunakataBlog() {
                   </div>
 
                   <div style={{ backgroundColor: '#fafafa', borderTop: '1px solid #eee' }}>
-                    {/* 返信一覧 */}
                     {getReplies(thread.id).map((reply) => (
                       <div key={reply.id} style={{ padding: '15px 20px 15px 40px', borderBottom: '1px solid #f0f0f0', position: 'relative' }}>
                         <div style={{ position: 'absolute', left: '20px', top: '0', bottom: '0', width: '2px', backgroundColor: '#dcd0ea' }}></div>
@@ -193,7 +241,6 @@ export default function MunakataBlog() {
                       </div>
                     ))}
 
-                    {/* 返信フォーム */}
                     {replyTargetId === thread.id && (
                       <div style={{ padding: '20px', backgroundColor: '#fff', borderTop: '2px solid #5a3d8a' }}>
                         <textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} placeholder={`${profileName} として返信...`} style={{ width: '100%', height: '80px', padding: '10px', borderRadius: '5px', border: '1px solid #ccc', marginBottom: '10px', color: '#333' }} />
