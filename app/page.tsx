@@ -9,8 +9,18 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const LOGO_URL = "https://wkvetwjywdkwairqztsb.supabase.co/storage/v1/object/public/images/0.7302238554901188.png";
 
+// ブログのジャンル定義
+const GENRES = [
+  { id: '未分類', label: '未分類', level: 0 },
+  { id: 'hard', label: '📂 hard', level: 0 },
+  { id: 'hard/board', label: '📂 board', level: 1 },
+  { id: 'hard/board/ir', label: '📄 ir', level: 2 },
+  { id: 'hard/board/kicker', label: '📄 kicker', level: 2 },
+  { id: '部品のすゝめ', label: '📂 部品のすゝめ', level: 0 },
+  { id: '部品のすゝめ/メインマイコン', label: '📄 メインマイコン', level: 1 }
+];
+
 export default function MunakataBbsAndBlog() {
-  // viewにブログ関連の画面を追加
   const [view, setView] = useState<'bbs' | 'blog_list' | 'blog_write' | 'blog_read' | 'profile'>('bbs');
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,11 +31,12 @@ export default function MunakataBbsAndBlog() {
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
 
-  // 入力用共通（BBS & Blog）
+  // 入力用
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [coverPreview, setCoverPreview] = useState(''); // ブログカバー画像プレビュー
+  const [coverPreview, setCoverPreview] = useState(''); 
+  const [genre, setGenre] = useState('未分類'); // ★追加：ジャンル用
   
   // 返信用
   const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
@@ -33,6 +44,8 @@ export default function MunakataBbsAndBlog() {
 
   // ブログ閲覧用
   const [activeArticle, setActiveArticle] = useState<any>(null);
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null); // 一覧での絞り込み用
+  const [insertingImage, setInsertingImage] = useState(false); // 本文画像アップロード中フラグ
 
   useEffect(() => {
     const savedName = localStorage.getItem('munakata_name');
@@ -72,59 +85,59 @@ export default function MunakataBbsAndBlog() {
     }
     localStorage.setItem('munakata_name', profileName);
     localStorage.setItem('munakata_avatar', newAvatarUrl);
-    setAvatarFile(null);
-    setAvatarPreview('');
+    setAvatarFile(null); setAvatarPreview('');
     alert("プロフィールを保存しました！");
     setView('bbs');
     setLoading(false);
   }
 
-  // 掲示板への投稿
   async function handleBbsSubmit() {
     if (!content) return;
     setLoading(true);
     let imageUrl = imageFile ? await uploadImage(imageFile) : '';
     await supabase.from('posts').insert([{ 
-      title, content, image_url: imageUrl,
-      author_name: profileName, author_avatar: profileAvatar,
-      category: 'bbs' // カテゴリをBBSに指定
+      title, content, image_url: imageUrl, author_name: profileName, author_avatar: profileAvatar, category: 'bbs'
     }]);
     setTitle(''); setContent(''); setImageFile(null);
-    fetchData();
-    setLoading(false);
+    fetchData(); setLoading(false);
   }
 
-  // ブログへの投稿
   async function handleBlogSubmit() {
-    if (!title || !content) {
-      alert("タイトルと本文は必須です！");
-      return;
-    }
+    if (!title || !content) { alert("タイトルと本文は必須です！"); return; }
     setLoading(true);
     let imageUrl = imageFile ? await uploadImage(imageFile) : '';
     await supabase.from('posts').insert([{ 
-      title, content, image_url: imageUrl,
-      author_name: profileName, author_avatar: profileAvatar,
-      category: 'blog' // カテゴリをブログに指定
+      title, content, image_url: imageUrl, author_name: profileName, author_avatar: profileAvatar, category: 'blog',
+      genre // ★ジャンルを保存
     }]);
-    setTitle(''); setContent(''); setImageFile(null); setCoverPreview('');
+    setTitle(''); setContent(''); setImageFile(null); setCoverPreview(''); setGenre('未分類');
     alert("ブログ記事を公開しました！");
-    setView('blog_list');
-    fetchData();
-    setLoading(false);
+    setView('blog_list'); fetchData(); setLoading(false);
+  }
+
+  // ★追加：本文の途中に画像を挿入する処理
+  async function handleInsertImageToContent(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setInsertingImage(true);
+    const url = await uploadImage(file);
+    if (url) {
+      // カーソル位置の取得は複雑なので、一旦末尾（改行して）に追加する仕様
+      setContent(prev => prev + `\n![画像](${url})\n`);
+    }
+    setInsertingImage(false);
+    // 同じ画像を連続で選べるようにリセット
+    e.target.value = '';
   }
 
   async function handleReplySubmit(parentId: string) {
     if (!replyContent) return;
     setLoading(true);
     await supabase.from('posts').insert([{ 
-      content: replyContent, parent_id: parentId,
-      author_name: profileName, author_avatar: profileAvatar,
-      category: 'bbs'
+      content: replyContent, parent_id: parentId, author_name: profileName, author_avatar: profileAvatar, category: 'bbs'
     }]);
     setReplyContent(''); setReplyTargetId(null);
-    fetchData();
-    setLoading(false);
+    fetchData(); setLoading(false);
   }
 
   // データの振り分け
@@ -133,10 +146,16 @@ export default function MunakataBbsAndBlog() {
   const blogArticles = mainThreads.filter(p => p.category === 'blog');
   const getReplies = (parentId: string) => posts.filter(p => p.parent_id === parentId).reverse();
 
-  // ブログ記事を読む
-  const openArticle = (article: any) => {
-    setActiveArticle(article);
-    setView('blog_read');
+  // ★追加：Markdownの画像記法 `![alt](url)` を実際の<img>タグに変換して表示する関数
+  const renderContent = (text: string) => {
+    const parts = text.split(/(!\[.*?\]\(.*?\))/g);
+    return parts.map((part, index) => {
+      const match = part.match(/!\[(.*?)\]\((.*?)\)/);
+      if (match) {
+        return <img key={index} src={match[2]} alt={match[1]} style={{ maxWidth: '100%', borderRadius: '8px', margin: '15px 0', display: 'block' }} />;
+      }
+      return <span key={index}>{part}</span>;
+    });
   };
 
   return (
@@ -151,7 +170,6 @@ export default function MunakataBbsAndBlog() {
             <span style={{ fontSize: '13px', color: '#666' }}>〜 公式交流サイト 〜</span>
           </div>
         </div>
-        
         <div onClick={() => setView('profile')} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '8px 15px', backgroundColor: '#f3eef7', borderRadius: '30px', border: '1px solid #dcd0ea' }}>
           <img src={profileAvatar || 'https://via.placeholder.com/35?text=Img'} style={{ width: '35px', height: '35px', borderRadius: '50%', objectFit: 'cover' }} />
           <span style={{ fontWeight: 'bold', color: '#5a3d8a' }}>{profileName}</span>
@@ -165,9 +183,10 @@ export default function MunakataBbsAndBlog() {
         <button onClick={() => setView('blog_list')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('blog') ? '#5a3d8a' : '#eee', color: view.startsWith('blog') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>🖋️ ブログ</button>
       </nav>
 
-      <main style={{ maxWidth: view.startsWith('blog') ? '800px' : '1000px', margin: '0 auto', padding: '30px 20px' }}>
+      <main style={{ maxWidth: '1000px', margin: '0 auto', padding: '30px 20px' }}>
         
         {/* ================= プロフィール設定 ================= */}
+        {view === 'profile' && ( ... 省略せずに記載します ... )}
         {view === 'profile' && (
           <section style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd' }}>
             <h2 style={{ color: '#5a3d8a', marginTop: 0 }}>⚙️ プロフィールの設定</h2>
@@ -216,7 +235,7 @@ export default function MunakataBbsAndBlog() {
                     <small style={{ color: '#888' }}>{new Date(thread.created_at).toLocaleString('ja-JP')}</small>
                   </div>
                   <div style={{ padding: '20px' }}>
-                    <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{thread.content}</p>
+                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{renderContent(thread.content)}</div>
                     {thread.image_url && <img src={thread.image_url} style={{ maxWidth: '100%', marginTop: '10px', borderRadius: '8px' }} />}
                     <button onClick={() => setReplyTargetId(replyTargetId === thread.id ? null : thread.id)} style={{ marginTop: '15px', color: '#5a3d8a', background: 'none', border: '1px solid #5a3d8a', padding: '5px 15px', borderRadius: '5px', cursor: 'pointer' }}>返信する</button>
                   </div>
@@ -228,7 +247,7 @@ export default function MunakataBbsAndBlog() {
                           <img src={reply.author_avatar || 'https://via.placeholder.com/24'} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} />
                           <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{reply.author_name}</span>
                         </div>
-                        <p style={{ margin: 0, fontSize: '14px' }}>{reply.content}</p>
+                        <div style={{ margin: 0, fontSize: '14px', whiteSpace: 'pre-wrap' }}>{renderContent(reply.content)}</div>
                       </div>
                     ))}
                     {replyTargetId === thread.id && (
@@ -244,43 +263,81 @@ export default function MunakataBbsAndBlog() {
           </div>
         )}
 
-        {/* ================= ブログ機能：記事一覧 ================= */}
+        {/* ================= ブログ機能：記事一覧（2カラムレイアウト） ================= */}
         {view === 'blog_list' && (
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-              <h2 style={{ color: '#333', margin: 0 }}>記事一覧</h2>
-              <button onClick={() => { setTitle(''); setContent(''); setImageFile(null); setCoverPreview(''); setView('blog_write'); }} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 20px', border: 'none', borderRadius: '20px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
-                ＋ 記事を書く
-              </button>
+          <div style={{ display: 'flex', gap: '30px', alignItems: 'flex-start' }}>
+            
+            {/* 左サイドバー：ジャンルツリー */}
+            <div style={{ width: '220px', flexShrink: 0, backgroundColor: '#f9f9f9', padding: '20px', borderRadius: '12px', border: '1px solid #eee', position: 'sticky', top: '100px' }}>
+              <h3 style={{ fontSize: '16px', color: '#5a3d8a', marginTop: 0, borderBottom: '2px solid #dcd0ea', paddingBottom: '10px', marginBottom: '15px' }}>📁 ジャンル</h3>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '14px', lineHeight: '2.2' }}>
+                <li 
+                  onClick={() => setSelectedGenre(null)} 
+                  style={{ cursor: 'pointer', fontWeight: selectedGenre === null ? 'bold' : 'normal', color: selectedGenre === null ? '#b91c1c' : '#333' }}
+                >
+                  🌐 全ての記事
+                </li>
+                {GENRES.filter(g => g.id !== '未分類').map((g) => (
+                  <li 
+                    key={g.id} 
+                    onClick={() => setSelectedGenre(g.id)} 
+                    style={{ 
+                      cursor: 'pointer', 
+                      paddingLeft: `${g.level * 15}px`, 
+                      fontWeight: selectedGenre === g.id ? 'bold' : 'normal',
+                      color: selectedGenre === g.id ? '#b91c1c' : '#555'
+                    }}
+                  >
+                    {g.label}
+                  </li>
+                ))}
+              </ul>
             </div>
 
-            <div style={{ display: 'grid', gap: '25px' }}>
-              {blogArticles.map(article => (
-                <article key={article.id} onClick={() => openArticle(article)} style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', transition: 'box-shadow 0.2s', display: 'flex', flexDirection: 'column' }} onMouseOver={e => e.currentTarget.style.boxShadow = '0 4px 15px rgba(0,0,0,0.05)'} onMouseOut={e => e.currentTarget.style.boxShadow = 'none'}>
-                  {article.image_url && (
-                    <img src={article.image_url} alt="Cover" style={{ width: '100%', height: '200px', objectFit: 'cover' }} />
-                  )}
-                  <div style={{ padding: '20px' }}>
-                    <h3 style={{ margin: '0 0 10px 0', fontSize: '22px', color: '#333' }}>{article.title}</h3>
-                    <p style={{ margin: '0 0 15px 0', color: '#666', fontSize: '15px', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                      {article.content}
-                    </p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <img src={article.author_avatar || 'https://via.placeholder.com/30'} style={{ width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' }} />
-                      <span style={{ fontSize: '14px', color: '#555', fontWeight: 'bold' }}>{article.author_name}</span>
-                      <span style={{ fontSize: '13px', color: '#aaa', marginLeft: 'auto' }}>{new Date(article.created_at).toLocaleDateString('ja-JP')}</span>
+            {/* 右メイン：記事一覧 */}
+            <div style={{ flexGrow: 1 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h2 style={{ color: '#333', margin: 0 }}>
+                  {selectedGenre ? `「${GENRES.find(g => g.id === selectedGenre)?.label.replace(/📁 |📄 /,'')}」の記事` : '最新の記事'}
+                </h2>
+                <button onClick={() => { setTitle(''); setContent(''); setImageFile(null); setCoverPreview(''); setGenre('未分類'); setView('blog_write'); }} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 20px', border: 'none', borderRadius: '20px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
+                  ＋ 記事を書く
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gap: '25px' }}>
+                {blogArticles
+                  .filter(article => selectedGenre === null || article.genre?.startsWith(selectedGenre)) // 前方一致で子ジャンルも含む
+                  .map(article => (
+                  <article key={article.id} onClick={() => { setActiveArticle(article); setView('blog_read'); }} style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}>
+                    {article.image_url && (
+                      <img src={article.image_url} alt="Cover" style={{ width: '100%', height: '200px', objectFit: 'cover' }} />
+                    )}
+                    <div style={{ padding: '20px' }}>
+                      <div style={{ fontSize: '12px', color: '#fff', backgroundColor: '#5a3d8a', display: 'inline-block', padding: '2px 10px', borderRadius: '10px', marginBottom: '10px' }}>
+                        {article.genre || '未分類'}
+                      </div>
+                      <h3 style={{ margin: '0 0 10px 0', fontSize: '20px', color: '#333' }}>{article.title}</h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '15px' }}>
+                        <img src={article.author_avatar || 'https://via.placeholder.com/30'} style={{ width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' }} />
+                        <span style={{ fontSize: '14px', color: '#555', fontWeight: 'bold' }}>{article.author_name}</span>
+                        <span style={{ fontSize: '13px', color: '#aaa', marginLeft: 'auto' }}>{new Date(article.created_at).toLocaleDateString('ja-JP')}</span>
+                      </div>
                     </div>
-                  </div>
-                </article>
-              ))}
-              {blogArticles.length === 0 && <p style={{ textAlign: 'center', color: '#888', padding: '50px' }}>まだ記事がありません。最初の記事を書いてみましょう！</p>}
+                  </article>
+                ))}
+                {blogArticles.filter(a => selectedGenre === null || a.genre?.startsWith(selectedGenre)).length === 0 && (
+                  <p style={{ textAlign: 'center', color: '#888', padding: '50px' }}>この記事は見つかりませんでした。</p>
+                )}
+              </div>
             </div>
+
           </div>
         )}
 
-        {/* ================= ブログ機能：執筆画面 (note風エディタ) ================= */}
+        {/* ================= ブログ機能：執筆画面 ================= */}
         {view === 'blog_write' && (
-          <div style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd', minHeight: '600px' }}>
+          <div style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd', minHeight: '600px', maxWidth: '800px', margin: '0 auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
               <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px' }}>← 戻る</button>
               <button onClick={handleBlogSubmit} disabled={loading} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '30px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}>
@@ -290,28 +347,41 @@ export default function MunakataBbsAndBlog() {
 
             {/* カバー画像設定 */}
             <div style={{ marginBottom: '20px', position: 'relative', backgroundColor: '#f9f9f9', border: '1px dashed #ccc', borderRadius: '10px', height: coverPreview ? 'auto' : '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-              {coverPreview ? (
-                <img src={coverPreview} style={{ width: '100%', maxHeight: '400px', objectFit: 'cover' }} />
-              ) : (
-                <span style={{ color: '#888' }}>📷 カバー画像を追加</span>
-              )}
+              {coverPreview ? <img src={coverPreview} style={{ width: '100%', maxHeight: '400px', objectFit: 'cover' }} /> : <span style={{ color: '#888' }}>📷 トップ用カバー画像を追加（任意）</span>}
               <input type="file" accept="image/*" onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) { setImageFile(file); setCoverPreview(URL.createObjectURL(file)); }
               }} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
             </div>
 
-            {/* タイトル入力（枠線なし） */}
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="記事のタイトル" style={{ width: '100%', fontSize: '32px', fontWeight: 'bold', border: 'none', borderBottom: '1px solid #eee', padding: '15px 0', marginBottom: '20px', outline: 'none', color: '#333' }} />
+            {/* ジャンル選択 */}
+            <div style={{ marginBottom: '20px' }}>
+              <span style={{ fontSize: '14px', fontWeight: 'bold', marginRight: '10px' }}>📁 ジャンル:</span>
+              <select value={genre} onChange={(e) => setGenre(e.target.value)} style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc' }}>
+                {GENRES.map(g => <option key={g.id} value={g.id}>{g.label.replace(/📁 |📄 /,'')}</option>)}
+              </select>
+            </div>
 
-            {/* 本文入力（枠線なし） */}
-            <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="ここに本文を書く..." style={{ width: '100%', minHeight: '400px', fontSize: '18px', lineHeight: '1.8', border: 'none', outline: 'none', resize: 'vertical', color: '#333' }} />
+            {/* タイトル */}
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="記事のタイトル" style={{ width: '100%', fontSize: '32px', fontWeight: 'bold', border: 'none', borderBottom: '1px solid #eee', padding: '15px 0', marginBottom: '20px', outline: 'none' }} />
+
+            {/* ★本文ツールバー（画像挿入ボタン） */}
+            <div style={{ backgroundColor: '#f1f1f1', padding: '10px', borderRadius: '8px', marginBottom: '10px', display: 'flex', gap: '10px' }}>
+              <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '14px', color: '#555', backgroundColor: '#fff', padding: '5px 10px', borderRadius: '5px', border: '1px solid #ccc' }}>
+                <span>{insertingImage ? '⏳ アップロード中...' : '🖼️ 本文に画像を挿入'}</span>
+                <input type="file" accept="image/*" disabled={insertingImage} onChange={handleInsertImageToContent} style={{ display: 'none' }} />
+              </label>
+              <span style={{ fontSize: '12px', color: '#888', alignSelf: 'center' }}>※画像を選ぶと本文の末尾に挿入されます</span>
+            </div>
+
+            {/* 本文 */}
+            <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="ここに本文を書く..." style={{ width: '100%', minHeight: '400px', fontSize: '18px', lineHeight: '1.8', border: 'none', outline: 'none', resize: 'vertical' }} />
           </div>
         )}
 
-        {/* ================= ブログ機能：閲覧画面 (note風デザイン) ================= */}
+        {/* ================= ブログ機能：閲覧画面 ================= */}
         {view === 'blog_read' && activeArticle && (
-          <article style={{ backgroundColor: '#fff', padding: '40px 0', borderRadius: '15px' }}>
+          <article style={{ backgroundColor: '#fff', padding: '40px 0', borderRadius: '15px', maxWidth: '800px', margin: '0 auto' }}>
             <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px', marginBottom: '20px', marginLeft: '20px' }}>← 記事一覧に戻る</button>
             
             {activeArticle.image_url && (
@@ -319,6 +389,7 @@ export default function MunakataBbsAndBlog() {
             )}
             
             <div style={{ padding: '0 40px' }}>
+              <div style={{ fontSize: '13px', color: '#5a3d8a', fontWeight: 'bold', marginBottom: '10px' }}>📁 {activeArticle.genre || '未分類'}</div>
               <h1 style={{ fontSize: '36px', margin: '0 0 20px 0', color: '#222', lineHeight: '1.4' }}>{activeArticle.title}</h1>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '40px', paddingBottom: '20px', borderBottom: '1px solid #eee' }}>
@@ -329,8 +400,9 @@ export default function MunakataBbsAndBlog() {
                 </div>
               </div>
 
+              {/* ★本文表示（画像タグをレンダリング） */}
               <div style={{ fontSize: '18px', lineHeight: '2.0', color: '#333', letterSpacing: '0.03em', whiteSpace: 'pre-wrap' }}>
-                {activeArticle.content}
+                {renderContent(activeArticle.content)}
               </div>
             </div>
           </article>
