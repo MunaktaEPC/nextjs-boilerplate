@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase接続設定
@@ -9,7 +9,7 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const LOGO_URL = "https://wkvetwjywdkwairqztsb.supabase.co/storage/v1/object/public/images/0.7302238554901188.png";
 
-// ★追加：TypeScriptに「投稿データ」の形を教えるための設計図
+// TypeScript用 型定義
 interface Post {
   id: string;
   created_at: string;
@@ -24,15 +24,18 @@ interface Post {
 }
 
 export default function MunakataBbsAndBlog() {
-  const [view, setView] = useState<'bbs' | 'blog_list' | 'blog_write' | 'blog_read' | 'profile'>('bbs');
-  const [posts, setPosts] = useState<Post[]>([]); // ★ any[] から Post[] に変更
+  // ★ viewに 'bbs_read' を追加
+  const [view, setView] = useState<'bbs' | 'bbs_read' | 'blog_list' | 'blog_write' | 'blog_read' | 'profile'>('bbs');
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // プロフィール用
+  // プロフィール＆管理者用
   const [profileName, setProfileName] = useState('名無しさん');
   const [profileAvatar, setProfileAvatar] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false); // ★ 管理者フラグ
+  const [adminPassInput, setAdminPassInput] = useState('');
 
   // 入力用
   const [title, setTitle] = useState('');
@@ -40,21 +43,22 @@ export default function MunakataBbsAndBlog() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState(''); 
   const [genre, setGenre] = useState('未分類');
+  const textareaRef = useRef<HTMLTextAreaElement>(null); // ★ カーソル位置取得用
   
-  // 返信用
-  const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
+  // 掲示板・ブログ閲覧用
+  const [activeThread, setActiveThread] = useState<Post | null>(null); // ★ 掲示板スレッド用
   const [replyContent, setReplyContent] = useState('');
-
-  // ブログ閲覧用
-  const [activeArticle, setActiveArticle] = useState<Post | null>(null); // ★ any から Post に変更
+  const [activeArticle, setActiveArticle] = useState<Post | null>(null);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [insertingImage, setInsertingImage] = useState(false);
 
   useEffect(() => {
     const savedName = localStorage.getItem('munakata_name');
     const savedAvatar = localStorage.getItem('munakata_avatar');
+    const savedAdmin = localStorage.getItem('munakata_is_admin') === 'true';
     if (savedName) setProfileName(savedName);
     if (savedAvatar) setProfileAvatar(savedAvatar);
+    if (savedAdmin) setIsAdmin(true);
     fetchData();
   }, [view]);
 
@@ -63,7 +67,7 @@ export default function MunakataBbsAndBlog() {
       .from('posts')
       .select('*')
       .order('created_at', { ascending: false });
-    if (data) setPosts(data as Post[]); // ★ 取得したデータを Post 型として扱うよう明示
+    if (data) setPosts(data as Post[]);
   }
 
   async function uploadImage(file: File) {
@@ -88,14 +92,41 @@ export default function MunakataBbsAndBlog() {
     }
     localStorage.setItem('munakata_name', profileName);
     localStorage.setItem('munakata_avatar', newAvatarUrl);
-    setAvatarFile(null); setAvatarPreview('');
+    
+    // ★ 管理者パスワードの判定（今回は「admin1234」としています。お好きに変更してください）
+    if (adminPassInput === 'admin1234') {
+      localStorage.setItem('munakata_is_admin', 'true');
+      setIsAdmin(true);
+      alert("管理者モードが有効になりました！");
+    }
+
+    setAvatarFile(null); setAvatarPreview(''); setAdminPassInput('');
     alert("プロフィールを保存しました！");
     setView('bbs');
     setLoading(false);
   }
 
+  // ★ 削除機能
+  async function handleDeletePost(id: string, e?: React.MouseEvent) {
+    if (e) e.stopPropagation(); // クリックイベントの伝播を防ぐ
+    if (!confirm("本当にこの投稿を削除しますか？\n（スレッドの場合は返信もすべて消えます）")) return;
+    
+    setLoading(true);
+    // 該当の投稿を削除
+    await supabase.from('posts').delete().eq('id', id);
+    // スレッド親だった場合、紐づく返信もまとめて削除
+    await supabase.from('posts').delete().eq('parent_id', id);
+    
+    // 閲覧中の画面を閉じる処理
+    if (activeThread?.id === id) setView('bbs');
+    if (activeArticle?.id === id) setView('blog_list');
+    
+    fetchData();
+    setLoading(false);
+  }
+
   async function handleBbsSubmit() {
-    if (!content) return;
+    if (!title || !content) return;
     setLoading(true);
     let imageUrl = imageFile ? await uploadImage(imageFile) : '';
     await supabase.from('posts').insert([{ 
@@ -109,7 +140,6 @@ export default function MunakataBbsAndBlog() {
     if (!title || !content) { alert("タイトルと本文は必須です！"); return; }
     setLoading(true);
     let imageUrl = imageFile ? await uploadImage(imageFile) : '';
-    // ジャンルが空欄の場合は「未分類」にする
     const finalGenre = genre.trim() === '' ? '未分類' : genre.trim();
     
     await supabase.from('posts').insert([{ 
@@ -121,25 +151,37 @@ export default function MunakataBbsAndBlog() {
     setView('blog_list'); fetchData(); setLoading(false);
   }
 
+  // ★ 画像をカーソル位置に挿入する機能
   async function handleInsertImageToContent(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setInsertingImage(true);
     const url = await uploadImage(file);
     if (url) {
-      setContent(prev => prev + `\n![画像](${url})\n`);
+      const textarea = textareaRef.current;
+      if (textarea) {
+        // カーソル位置を取得して間に画像を挟む
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const before = content.substring(0, start);
+        const after = content.substring(end, content.length);
+        setContent(`${before}\n![画像](${url})\n${after}`);
+      } else {
+        // 取得できない場合は末尾に追加
+        setContent(prev => prev + `\n![画像](${url})\n`);
+      }
     }
     setInsertingImage(false);
     e.target.value = '';
   }
 
-  async function handleReplySubmit(parentId: string) {
-    if (!replyContent) return;
+  async function handleReplySubmit() {
+    if (!replyContent || !activeThread) return;
     setLoading(true);
     await supabase.from('posts').insert([{ 
-      content: replyContent, parent_id: parentId, author_name: profileName, author_avatar: profileAvatar, category: 'bbs'
+      content: replyContent, parent_id: activeThread.id, author_name: profileName, author_avatar: profileAvatar, category: 'bbs'
     }]);
-    setReplyContent(''); setReplyTargetId(null);
+    setReplyContent('');
     fetchData(); setLoading(false);
   }
 
@@ -149,40 +191,31 @@ export default function MunakataBbsAndBlog() {
   const blogArticles = mainThreads.filter(p => p.category === 'blog');
   const getReplies = (parentId: string) => posts.filter(p => p.parent_id === parentId).reverse();
 
-  // 投稿された記事から、自動で階層化されたジャンル一覧を生成する機能
+  // ブログジャンル生成
   const dynamicGenres = useMemo(() => {
     const genreSet = new Set<string>();
-    
     blogArticles.forEach(article => {
       if (article.genre && article.genre !== '未分類') {
         const parts = article.genre.split('/');
         let currentPath = '';
-        // ★ エラー箇所修正：(part: string) と明示的に文字であることをTypeScriptに教えました
         parts.forEach((part: string) => {
           currentPath = currentPath ? `${currentPath}/${part}` : part;
           genreSet.add(currentPath);
         });
       }
     });
-
     const sortedPaths = Array.from(genreSet).sort();
-    const result = [
+    return [
       { id: '未分類', label: '未分類', level: 0 },
       ...sortedPaths.map((path: string) => {
         const parts = path.split('/');
-        return {
-          id: path,
-          label: parts[parts.length - 1],
-          level: parts.length - 1
-        };
+        return { id: path, label: parts[parts.length - 1], level: parts.length - 1 };
       })
     ];
-    return result;
   }, [blogArticles]);
 
   const renderContent = (text: string) => {
     const parts = text.split(/(!\[.*?\]\(.*?\))/g);
-    // ★ ここも念のため (part: string, index: number) と型をつけました
     return parts.map((part: string, index: number) => {
       const match = part.match(/!\[(.*?)\]\((.*?)\)/);
       if (match) {
@@ -204,16 +237,16 @@ export default function MunakataBbsAndBlog() {
             <span style={{ fontSize: '13px', color: '#666' }}>〜 公式交流サイト 〜</span>
           </div>
         </div>
-        <div onClick={() => setView('profile')} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '8px 15px', backgroundColor: '#f3eef7', borderRadius: '30px', border: '1px solid #dcd0ea' }}>
+        <div onClick={() => setView('profile')} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '8px 15px', backgroundColor: isAdmin ? '#ffebee' : '#f3eef7', borderRadius: '30px', border: `1px solid ${isAdmin ? '#ef9a9a' : '#dcd0ea'}` }}>
           <img src={profileAvatar || 'https://via.placeholder.com/35?text=Img'} style={{ width: '35px', height: '35px', borderRadius: '50%', objectFit: 'cover' }} />
-          <span style={{ fontWeight: 'bold', color: '#5a3d8a' }}>{profileName}</span>
+          <span style={{ fontWeight: 'bold', color: isAdmin ? '#c62828' : '#5a3d8a' }}>{profileName} {isAdmin && '⭐'}</span>
           <span>⚙️</span>
         </div>
       </header>
 
       {/* ナビゲーション */}
       <nav style={{ padding: '20px 40px', display: 'flex', gap: '15px', borderBottom: '1px solid #eee', backgroundColor: '#fff' }}>
-        <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'bbs' ? '#5a3d8a' : '#eee', color: view === 'bbs' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>💬 掲示板</button>
+        <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('bbs') ? '#5a3d8a' : '#eee', color: view.startsWith('bbs') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>💬 掲示板</button>
         <button onClick={() => setView('blog_list')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('blog') ? '#5a3d8a' : '#eee', color: view.startsWith('blog') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>🖋️ ブログ</button>
       </nav>
 
@@ -237,61 +270,127 @@ export default function MunakataBbsAndBlog() {
                 <img src={avatarPreview || profileAvatar} style={{ width: '70px', height: '70px', borderRadius: '50%', marginTop: '15px', display: 'block', objectFit: 'cover' }} />
               )}
             </div>
+
+            {/* 管理者権限エリア */}
+            {!isAdmin && (
+              <div style={{ marginBottom: '30px', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '8px', border: '1px dashed #ccc' }}>
+                <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '5px' }}>🔑 管理者用パスワード (任意)</label>
+                <input type="password" value={adminPassInput} onChange={(e) => setAdminPassInput(e.target.value)} placeholder="合言葉を入力" style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc' }} />
+              </div>
+            )}
+            {isAdmin && (
+              <div style={{ marginBottom: '30px', padding: '15px', backgroundColor: '#ffebee', color: '#c62828', borderRadius: '8px', fontWeight: 'bold' }}>
+                ⭐ あなたは管理者モードです。投稿の削除が可能です。
+                <button onClick={() => { localStorage.removeItem('munakata_is_admin'); setIsAdmin(false); }} style={{ marginLeft: '15px', fontSize: '12px', padding: '4px 8px', cursor: 'pointer' }}>解除する</button>
+              </div>
+            )}
+
             <button onClick={saveProfile} disabled={loading} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '12px 40px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>保存する</button>
           </section>
         )}
 
-        {/* ================= 掲示板画面 ================= */}
+        {/* ================= 掲示板スレッド一覧画面 ================= */}
         {view === 'bbs' && (
           <div>
             <section style={{ backgroundColor: '#f3eef7', padding: '25px', borderRadius: '15px', border: '1px solid #dcd0ea', marginBottom: '40px' }}>
               <h2 style={{ fontSize: '18px', color: '#5a3d8a', marginTop: 0 }}>💬 新しい掲示板スレッドを作成</h2>
-              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトル" style={{ width: '100%', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
-              <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文" style={{ width: '100%', height: '100px', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
+              <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="スレッドのタイトル" style={{ width: '100%', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
+              <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文" style={{ width: '100%', height: '80px', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <input type="file" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
-                <button onClick={handleBbsSubmit} disabled={loading} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>投稿する</button>
+                <button onClick={handleBbsSubmit} disabled={loading} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>作成する</button>
               </div>
             </section>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-              {bbsThreads.map(thread => (
-                <article key={thread.id} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '12px', overflow: 'hidden' }}>
-                  <div style={{ backgroundColor: '#f8f5fb', padding: '15px 20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <img src={thread.author_avatar || 'https://via.placeholder.com/40'} style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
-                      <div>
-                        <div style={{ fontSize: '13px', color: '#555', fontWeight: 'bold' }}>{thread.author_name}</div>
-                        <h3 style={{ margin: 0, color: '#b91c1c', fontSize: '18px' }}>{thread.title}</h3>
-                      </div>
+            <div style={{ display: 'grid', gap: '15px' }}>
+              {bbsThreads.map(thread => {
+                const repliesCount = getReplies(thread.id).length;
+                return (
+                  <article 
+                    key={thread.id} 
+                    onClick={() => { setActiveThread(thread); setView('bbs_read'); }}
+                    style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '12px', padding: '20px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '10px', transition: '0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}
+                    onMouseOver={(e) => e.currentTarget.style.borderColor = '#5a3d8a'}
+                    onMouseOut={(e) => e.currentTarget.style.borderColor = '#ddd'}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <h3 style={{ margin: 0, color: '#b91c1c', fontSize: '20px' }}>{thread.title}</h3>
+                      {isAdmin && (
+                        <button onClick={(e) => handleDeletePost(thread.id, e)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>🗑️ 削除</button>
+                      )}
                     </div>
-                    <small style={{ color: '#888' }}>{new Date(thread.created_at).toLocaleString('ja-JP')}</small>
-                  </div>
-                  <div style={{ padding: '20px' }}>
-                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{renderContent(thread.content)}</div>
-                    {thread.image_url && <img src={thread.image_url} style={{ maxWidth: '100%', marginTop: '10px', borderRadius: '8px' }} />}
-                    <button onClick={() => setReplyTargetId(replyTargetId === thread.id ? null : thread.id)} style={{ marginTop: '15px', color: '#5a3d8a', background: 'none', border: '1px solid #5a3d8a', padding: '5px 15px', borderRadius: '5px', cursor: 'pointer' }}>返信する</button>
-                  </div>
-                  <div style={{ backgroundColor: '#fafafa' }}>
-                    {getReplies(thread.id).map(reply => (
-                      <div key={reply.id} style={{ padding: '15px 20px 15px 40px', borderTop: '1px solid #eee', position: 'relative' }}>
-                        <div style={{ position: 'absolute', left: '20px', top: 0, bottom: 0, width: '2px', backgroundColor: '#dcd0ea' }}></div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
-                          <img src={reply.author_avatar || 'https://via.placeholder.com/24'} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} />
-                          <span style={{ fontSize: '13px', fontWeight: 'bold' }}>{reply.author_name}</span>
-                        </div>
-                        <div style={{ margin: 0, fontSize: '14px', whiteSpace: 'pre-wrap' }}>{renderContent(reply.content)}</div>
+                    <div style={{ color: '#555', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {thread.content.replace(/!\[.*?\]\(.*?\)/g, '[画像]')}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginTop: '10px', fontSize: '13px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <img src={thread.author_avatar || 'https://via.placeholder.com/24'} style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover' }} />
+                        <span style={{ fontWeight: 'bold', color: '#333' }}>{thread.author_name}</span>
                       </div>
-                    ))}
-                    {replyTargetId === thread.id && (
-                      <div style={{ padding: '20px', backgroundColor: '#fff', borderTop: '2px solid #5a3d8a' }}>
-                        <textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} placeholder="返信を書く..." style={{ width: '100%', height: '70px', padding: '10px', marginBottom: '10px' }} />
-                        <button onClick={() => handleReplySubmit(thread.id)} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '5px 20px', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>送信</button>
-                      </div>
+                      <span style={{ color: '#888' }}>{new Date(thread.created_at).toLocaleString('ja-JP')}</span>
+                      <span style={{ marginLeft: 'auto', backgroundColor: '#f3eef7', color: '#5a3d8a', padding: '4px 10px', borderRadius: '20px', fontWeight: 'bold' }}>
+                        返信 {repliesCount}件
+                      </span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ================= 掲示板スレッド詳細画面（返信） ================= */}
+        {view === 'bbs_read' && activeThread && (
+          <div>
+            <button onClick={() => setView('bbs')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px', marginBottom: '20px' }}>← スレッド一覧に戻る</button>
+            
+            {/* スレッド親 */}
+            <article style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '12px', overflow: 'hidden', marginBottom: '30px' }}>
+              <div style={{ backgroundColor: '#f8f5fb', padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                  <img src={activeThread.author_avatar || 'https://via.placeholder.com/50'} style={{ width: '50px', height: '50px', borderRadius: '50%', objectFit: 'cover' }} />
+                  <div>
+                    <h2 style={{ margin: 0, color: '#b91c1c', fontSize: '22px' }}>{activeThread.title}</h2>
+                    <div style={{ fontSize: '14px', color: '#555', marginTop: '5px' }}>
+                      <span style={{ fontWeight: 'bold' }}>{activeThread.author_name}</span> <span style={{ color: '#888', marginLeft: '10px' }}>{new Date(activeThread.created_at).toLocaleString('ja-JP')}</span>
+                    </div>
+                  </div>
+                </div>
+                {isAdmin && (
+                  <button onClick={() => handleDeletePost(activeThread.id)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '5px 15px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>🗑️ スレッドを削除</button>
+                )}
+              </div>
+              <div style={{ padding: '30px', fontSize: '16px', lineHeight: '1.8' }}>
+                <div style={{ whiteSpace: 'pre-wrap' }}>{renderContent(activeThread.content)}</div>
+                {activeThread.image_url && <img src={activeThread.image_url} style={{ maxWidth: '100%', marginTop: '20px', borderRadius: '8px' }} />}
+              </div>
+            </article>
+
+            {/* 返信一覧 */}
+            <h3 style={{ color: '#5a3d8a', borderBottom: '2px solid #dcd0ea', paddingBottom: '10px' }}>返信一覧 ({getReplies(activeThread.id).length}件)</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '40px' }}>
+              {getReplies(activeThread.id).map(reply => (
+                <div key={reply.id} style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #eee', position: 'relative' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                      <img src={reply.author_avatar || 'https://via.placeholder.com/30'} style={{ width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' }} />
+                      <span style={{ fontSize: '14px', fontWeight: 'bold' }}>{reply.author_name}</span>
+                      <span style={{ fontSize: '12px', color: '#888' }}>{new Date(reply.created_at).toLocaleString('ja-JP')}</span>
+                    </div>
+                    {isAdmin && (
+                      <button onClick={() => handleDeletePost(reply.id)} style={{ background: 'none', color: '#c62828', border: 'none', cursor: 'pointer', fontSize: '12px' }}>🗑️ 削除</button>
                     )}
                   </div>
-                </article>
+                  <div style={{ margin: 0, fontSize: '15px', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{renderContent(reply.content)}</div>
+                </div>
               ))}
+            </div>
+
+            {/* 返信入力 */}
+            <div style={{ backgroundColor: '#f9f9f9', padding: '25px', borderRadius: '12px', border: '1px solid #ddd' }}>
+              <h4 style={{ margin: '0 0 15px 0', color: '#333' }}>このスレッドに返信する</h4>
+              <textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} placeholder="コメントを書く..." style={{ width: '100%', height: '100px', padding: '15px', marginBottom: '15px', borderRadius: '8px', border: '1px solid #ccc' }} />
+              <button onClick={handleReplySubmit} disabled={loading} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>送信する</button>
             </div>
           </div>
         )}
@@ -299,56 +398,34 @@ export default function MunakataBbsAndBlog() {
         {/* ================= ブログ機能：記事一覧 ================= */}
         {view === 'blog_list' && (
           <div style={{ display: 'flex', gap: '30px', alignItems: 'flex-start' }}>
-            
-            {/* 左サイドバー：動的ジャンルツリー */}
             <div style={{ width: '220px', flexShrink: 0, backgroundColor: '#f9f9f9', padding: '20px', borderRadius: '12px', border: '1px solid #eee', position: 'sticky', top: '100px' }}>
               <h3 style={{ fontSize: '16px', color: '#5a3d8a', marginTop: 0, borderBottom: '2px solid #dcd0ea', paddingBottom: '10px', marginBottom: '15px' }}>📁 ジャンル</h3>
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '14px', lineHeight: '2.2' }}>
-                <li 
-                  onClick={() => setSelectedGenre(null)} 
-                  style={{ cursor: 'pointer', fontWeight: selectedGenre === null ? 'bold' : 'normal', color: selectedGenre === null ? '#b91c1c' : '#333' }}
-                >
-                  🌐 全ての記事
-                </li>
+                <li onClick={() => setSelectedGenre(null)} style={{ cursor: 'pointer', fontWeight: selectedGenre === null ? 'bold' : 'normal', color: selectedGenre === null ? '#b91c1c' : '#333' }}>🌐 全ての記事</li>
                 {dynamicGenres.filter(g => g.id !== '未分類').map((g) => (
-                  <li 
-                    key={g.id} 
-                    onClick={() => setSelectedGenre(g.id)} 
-                    style={{ 
-                      cursor: 'pointer', 
-                      paddingLeft: `${g.level * 15}px`, 
-                      fontWeight: selectedGenre === g.id ? 'bold' : 'normal',
-                      color: selectedGenre === g.id ? '#b91c1c' : '#555'
-                    }}
-                  >
+                  <li key={g.id} onClick={() => setSelectedGenre(g.id)} style={{ cursor: 'pointer', paddingLeft: `${g.level * 15}px`, fontWeight: selectedGenre === g.id ? 'bold' : 'normal', color: selectedGenre === g.id ? '#b91c1c' : '#555' }}>
                     {g.level === 0 ? '📂' : '📄'} {g.label}
                   </li>
                 ))}
               </ul>
             </div>
 
-            {/* 右メイン：記事一覧 */}
             <div style={{ flexGrow: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h2 style={{ color: '#333', margin: 0 }}>
-                  {selectedGenre ? `「${dynamicGenres.find(g => g.id === selectedGenre)?.label}」の記事` : '最新の記事'}
-                </h2>
-                <button onClick={() => { setTitle(''); setContent(''); setImageFile(null); setCoverPreview(''); setGenre('未分類'); setView('blog_write'); }} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 20px', border: 'none', borderRadius: '20px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
-                  ＋ 記事を書く
-                </button>
+                <h2 style={{ color: '#333', margin: 0 }}>{selectedGenre ? `「${dynamicGenres.find(g => g.id === selectedGenre)?.label}」の記事` : '最新の記事'}</h2>
+                <button onClick={() => { setTitle(''); setContent(''); setImageFile(null); setCoverPreview(''); setGenre('未分類'); setView('blog_write'); }} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 20px', border: 'none', borderRadius: '20px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>＋ 記事を書く</button>
               </div>
 
               <div style={{ display: 'grid', gap: '25px' }}>
-                {blogArticles
-                  .filter(article => selectedGenre === null || article.genre?.startsWith(selectedGenre))
-                  .map(article => (
+                {blogArticles.filter(article => selectedGenre === null || article.genre?.startsWith(selectedGenre)).map(article => (
                   <article key={article.id} onClick={() => { setActiveArticle(article); setView('blog_read'); }} style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}>
-                    {article.image_url && (
-                      <img src={article.image_url} alt="Cover" style={{ width: '100%', height: '200px', objectFit: 'cover' }} />
-                    )}
-                    <div style={{ padding: '20px' }}>
-                      <div style={{ fontSize: '12px', color: '#fff', backgroundColor: '#5a3d8a', display: 'inline-block', padding: '2px 10px', borderRadius: '10px', marginBottom: '10px' }}>
-                        {article.genre || '未分類'}
+                    {article.image_url && <img src={article.image_url} alt="Cover" style={{ width: '100%', height: '200px', objectFit: 'cover' }} />}
+                    <div style={{ padding: '20px', position: 'relative' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ fontSize: '12px', color: '#fff', backgroundColor: '#5a3d8a', display: 'inline-block', padding: '2px 10px', borderRadius: '10px', marginBottom: '10px' }}>{article.genre || '未分類'}</div>
+                        {isAdmin && (
+                          <button onClick={(e) => handleDeletePost(article.id, e)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '3px 8px', borderRadius: '5px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' }}>🗑️ 削除</button>
+                        )}
                       </div>
                       <h3 style={{ margin: '0 0 10px 0', fontSize: '20px', color: '#333' }}>{article.title}</h3>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '15px' }}>
@@ -359,12 +436,8 @@ export default function MunakataBbsAndBlog() {
                     </div>
                   </article>
                 ))}
-                {blogArticles.filter(a => selectedGenre === null || a.genre?.startsWith(selectedGenre)).length === 0 && (
-                  <p style={{ textAlign: 'center', color: '#888', padding: '50px' }}>この記事は見つかりませんでした。</p>
-                )}
               </div>
             </div>
-
           </div>
         )}
 
@@ -378,7 +451,6 @@ export default function MunakataBbsAndBlog() {
               </button>
             </div>
 
-            {/* カバー画像設定 */}
             <div style={{ marginBottom: '20px', position: 'relative', backgroundColor: '#f9f9f9', border: '1px dashed #ccc', borderRadius: '10px', height: coverPreview ? 'auto' : '150px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
               {coverPreview ? <img src={coverPreview} style={{ width: '100%', maxHeight: '400px', objectFit: 'cover' }} /> : <span style={{ color: '#888' }}>📷 トップ用カバー画像を追加（任意）</span>}
               <input type="file" accept="image/*" onChange={(e) => {
@@ -387,48 +459,38 @@ export default function MunakataBbsAndBlog() {
               }} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
             </div>
 
-            {/* ★自由入力ジャンル選択（サジェスト付き） */}
             <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <span style={{ fontSize: '14px', fontWeight: 'bold' }}>📁 ジャンル:</span>
-              <input 
-                type="text" 
-                list="genre-list"
-                value={genre} 
-                onChange={(e) => setGenre(e.target.value)} 
-                placeholder="例: hard/board/kicker"
-                style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc', flexGrow: 1, maxWidth: '300px' }} 
-              />
-              <datalist id="genre-list">
-                {dynamicGenres.map(g => <option key={g.id} value={g.id} />)}
-              </datalist>
-              <span style={{ fontSize: '12px', color: '#666' }}>※自由に作成可能。「/」で区切るとフォルダになります。</span>
+              <input type="text" list="genre-list" value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="例: hard/board" style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc', flexGrow: 1, maxWidth: '300px' }} />
+              <datalist id="genre-list">{dynamicGenres.map(g => <option key={g.id} value={g.id} />)}</datalist>
             </div>
 
-            {/* タイトル */}
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="記事のタイトル" style={{ width: '100%', fontSize: '32px', fontWeight: 'bold', border: 'none', borderBottom: '1px solid #eee', padding: '15px 0', marginBottom: '20px', outline: 'none' }} />
 
-            {/* 本文ツールバー（画像挿入ボタン） */}
             <div style={{ backgroundColor: '#f1f1f1', padding: '10px', borderRadius: '8px', marginBottom: '10px', display: 'flex', gap: '10px' }}>
               <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '14px', color: '#555', backgroundColor: '#fff', padding: '5px 10px', borderRadius: '5px', border: '1px solid #ccc' }}>
                 <span>{insertingImage ? '⏳ アップロード中...' : '🖼️ 本文に画像を挿入'}</span>
                 <input type="file" accept="image/*" disabled={insertingImage} onChange={handleInsertImageToContent} style={{ display: 'none' }} />
               </label>
-              <span style={{ fontSize: '12px', color: '#888', alignSelf: 'center' }}>※画像を選ぶと本文の末尾に挿入されます</span>
+              <span style={{ fontSize: '12px', color: '#888', alignSelf: 'center' }}>※カーソルを合わせた位置に画像が挿入されます</span>
             </div>
 
-            {/* 本文 */}
-            <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="ここに本文を書く..." style={{ width: '100%', minHeight: '400px', fontSize: '18px', lineHeight: '1.8', border: 'none', outline: 'none', resize: 'vertical' }} />
+            {/* ★ textareaに ref を追加してカーソル位置を監視 */}
+            <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)} placeholder="ここに本文を書く..." style={{ width: '100%', minHeight: '400px', fontSize: '18px', lineHeight: '1.8', border: 'none', outline: 'none', resize: 'vertical' }} />
           </div>
         )}
 
         {/* ================= ブログ機能：閲覧画面 ================= */}
         {view === 'blog_read' && activeArticle && (
           <article style={{ backgroundColor: '#fff', padding: '40px 0', borderRadius: '15px', maxWidth: '800px', margin: '0 auto' }}>
-            <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px', marginBottom: '20px', marginLeft: '20px' }}>← 記事一覧に戻る</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '0 20px', marginBottom: '20px' }}>
+              <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px' }}>← 記事一覧に戻る</button>
+              {isAdmin && (
+                <button onClick={() => handleDeletePost(activeArticle.id)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>🗑️ この記事を削除する</button>
+              )}
+            </div>
             
-            {activeArticle.image_url && (
-              <img src={activeArticle.image_url} alt="Cover" style={{ width: '100%', maxHeight: '450px', objectFit: 'cover', borderRadius: '10px', marginBottom: '30px' }} />
-            )}
+            {activeArticle.image_url && <img src={activeArticle.image_url} alt="Cover" style={{ width: '100%', maxHeight: '450px', objectFit: 'cover', borderRadius: '10px', marginBottom: '30px' }} />}
             
             <div style={{ padding: '0 40px' }}>
               <div style={{ fontSize: '13px', color: '#5a3d8a', fontWeight: 'bold', marginBottom: '10px' }}>📁 {activeArticle.genre || '未分類'}</div>
@@ -442,7 +504,6 @@ export default function MunakataBbsAndBlog() {
                 </div>
               </div>
 
-              {/* 本文表示（画像タグをレンダリング） */}
               <div style={{ fontSize: '18px', lineHeight: '2.0', color: '#333', letterSpacing: '0.03em', whiteSpace: 'pre-wrap' }}>
                 {renderContent(activeArticle.content)}
               </div>
