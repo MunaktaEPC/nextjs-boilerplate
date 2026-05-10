@@ -9,9 +9,23 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const LOGO_URL = "https://wkvetwjywdkwairqztsb.supabase.co/storage/v1/object/public/images/0.7302238554901188.png";
 
+// ★追加：TypeScriptに「投稿データ」の形を教えるための設計図
+interface Post {
+  id: string;
+  created_at: string;
+  title: string;
+  content: string;
+  image_url: string;
+  author_name: string;
+  author_avatar: string;
+  category: string;
+  genre?: string;
+  parent_id?: string;
+}
+
 export default function MunakataBbsAndBlog() {
   const [view, setView] = useState<'bbs' | 'blog_list' | 'blog_write' | 'blog_read' | 'profile'>('bbs');
-  const [posts, setPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]); // ★ any[] から Post[] に変更
   const [loading, setLoading] = useState(false);
   
   // プロフィール用
@@ -32,7 +46,7 @@ export default function MunakataBbsAndBlog() {
   const [replyContent, setReplyContent] = useState('');
 
   // ブログ閲覧用
-  const [activeArticle, setActiveArticle] = useState<any>(null);
+  const [activeArticle, setActiveArticle] = useState<Post | null>(null); // ★ any から Post に変更
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
   const [insertingImage, setInsertingImage] = useState(false);
 
@@ -49,7 +63,7 @@ export default function MunakataBbsAndBlog() {
       .from('posts')
       .select('*')
       .order('created_at', { ascending: false });
-    if (data) setPosts(data);
+    if (data) setPosts(data as Post[]); // ★ 取得したデータを Post 型として扱うよう明示
   }
 
   async function uploadImage(file: File) {
@@ -135,32 +149,31 @@ export default function MunakataBbsAndBlog() {
   const blogArticles = mainThreads.filter(p => p.category === 'blog');
   const getReplies = (parentId: string) => posts.filter(p => p.parent_id === parentId).reverse();
 
-  // ★追加：投稿された記事から、自動で階層化されたジャンル一覧を生成する機能
+  // 投稿された記事から、自動で階層化されたジャンル一覧を生成する機能
   const dynamicGenres = useMemo(() => {
     const genreSet = new Set<string>();
     
     blogArticles.forEach(article => {
       if (article.genre && article.genre !== '未分類') {
-        // 「/」で分割し、親ディレクトリも含めてすべてSetに登録する
         const parts = article.genre.split('/');
         let currentPath = '';
-        parts.forEach(part => {
+        // ★ エラー箇所修正：(part: string) と明示的に文字であることをTypeScriptに教えました
+        parts.forEach((part: string) => {
           currentPath = currentPath ? `${currentPath}/${part}` : part;
           genreSet.add(currentPath);
         });
       }
     });
 
-    // アルファベット順にソートして、階層情報（level）と表示名（label）を付与
     const sortedPaths = Array.from(genreSet).sort();
     const result = [
       { id: '未分類', label: '未分類', level: 0 },
-      ...sortedPaths.map(path => {
+      ...sortedPaths.map((path: string) => {
         const parts = path.split('/');
         return {
           id: path,
-          label: parts[parts.length - 1], // 最後の要素を表示名にする
-          level: parts.length - 1         // スラッシュの数でインデントを決める
+          label: parts[parts.length - 1],
+          level: parts.length - 1
         };
       })
     ];
@@ -169,7 +182,8 @@ export default function MunakataBbsAndBlog() {
 
   const renderContent = (text: string) => {
     const parts = text.split(/(!\[.*?\]\(.*?\))/g);
-    return parts.map((part, index) => {
+    // ★ ここも念のため (part: string, index: number) と型をつけました
+    return parts.map((part: string, index: number) => {
       const match = part.match(/!\[(.*?)\]\((.*?)\)/);
       if (match) {
         return <img key={index} src={match[2]} alt={match[1]} style={{ maxWidth: '100%', borderRadius: '8px', margin: '15px 0', display: 'block' }} />;
@@ -384,7 +398,6 @@ export default function MunakataBbsAndBlog() {
                 placeholder="例: hard/board/kicker"
                 style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc', flexGrow: 1, maxWidth: '300px' }} 
               />
-              {/* HTMLのdatalist機能を使って、既存のジャンルをサジェスト表示 */}
               <datalist id="genre-list">
                 {dynamicGenres.map(g => <option key={g.id} value={g.id} />)}
               </datalist>
