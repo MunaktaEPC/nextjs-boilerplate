@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase接続設定
@@ -8,17 +8,6 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const LOGO_URL = "https://wkvetwjywdkwairqztsb.supabase.co/storage/v1/object/public/images/0.7302238554901188.png";
-
-// ブログのジャンル定義
-const GENRES = [
-  { id: '未分類', label: '未分類', level: 0 },
-  { id: 'hard', label: '📂 hard', level: 0 },
-  { id: 'hard/board', label: '📂 board', level: 1 },
-  { id: 'hard/board/ir', label: '📄 ir', level: 2 },
-  { id: 'hard/board/kicker', label: '📄 kicker', level: 2 },
-  { id: '部品のすゝめ', label: '📂 部品のすゝめ', level: 0 },
-  { id: '部品のすゝめ/メインマイコン', label: '📄 メインマイコン', level: 1 }
-];
 
 export default function MunakataBbsAndBlog() {
   const [view, setView] = useState<'bbs' | 'blog_list' | 'blog_write' | 'blog_read' | 'profile'>('bbs');
@@ -36,7 +25,7 @@ export default function MunakataBbsAndBlog() {
   const [content, setContent] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState(''); 
-  const [genre, setGenre] = useState('未分類'); // ★追加：ジャンル用
+  const [genre, setGenre] = useState('未分類');
   
   // 返信用
   const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
@@ -44,8 +33,8 @@ export default function MunakataBbsAndBlog() {
 
   // ブログ閲覧用
   const [activeArticle, setActiveArticle] = useState<any>(null);
-  const [selectedGenre, setSelectedGenre] = useState<string | null>(null); // 一覧での絞り込み用
-  const [insertingImage, setInsertingImage] = useState(false); // 本文画像アップロード中フラグ
+  const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
+  const [insertingImage, setInsertingImage] = useState(false);
 
   useEffect(() => {
     const savedName = localStorage.getItem('munakata_name');
@@ -106,27 +95,27 @@ export default function MunakataBbsAndBlog() {
     if (!title || !content) { alert("タイトルと本文は必須です！"); return; }
     setLoading(true);
     let imageUrl = imageFile ? await uploadImage(imageFile) : '';
+    // ジャンルが空欄の場合は「未分類」にする
+    const finalGenre = genre.trim() === '' ? '未分類' : genre.trim();
+    
     await supabase.from('posts').insert([{ 
       title, content, image_url: imageUrl, author_name: profileName, author_avatar: profileAvatar, category: 'blog',
-      genre // ★ジャンルを保存
+      genre: finalGenre
     }]);
     setTitle(''); setContent(''); setImageFile(null); setCoverPreview(''); setGenre('未分類');
     alert("ブログ記事を公開しました！");
     setView('blog_list'); fetchData(); setLoading(false);
   }
 
-  // ★追加：本文の途中に画像を挿入する処理
   async function handleInsertImageToContent(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setInsertingImage(true);
     const url = await uploadImage(file);
     if (url) {
-      // カーソル位置の取得は複雑なので、一旦末尾（改行して）に追加する仕様
       setContent(prev => prev + `\n![画像](${url})\n`);
     }
     setInsertingImage(false);
-    // 同じ画像を連続で選べるようにリセット
     e.target.value = '';
   }
 
@@ -146,7 +135,38 @@ export default function MunakataBbsAndBlog() {
   const blogArticles = mainThreads.filter(p => p.category === 'blog');
   const getReplies = (parentId: string) => posts.filter(p => p.parent_id === parentId).reverse();
 
-  // ★追加：Markdownの画像記法 `![alt](url)` を実際の<img>タグに変換して表示する関数
+  // ★追加：投稿された記事から、自動で階層化されたジャンル一覧を生成する機能
+  const dynamicGenres = useMemo(() => {
+    const genreSet = new Set<string>();
+    
+    blogArticles.forEach(article => {
+      if (article.genre && article.genre !== '未分類') {
+        // 「/」で分割し、親ディレクトリも含めてすべてSetに登録する
+        const parts = article.genre.split('/');
+        let currentPath = '';
+        parts.forEach(part => {
+          currentPath = currentPath ? `${currentPath}/${part}` : part;
+          genreSet.add(currentPath);
+        });
+      }
+    });
+
+    // アルファベット順にソートして、階層情報（level）と表示名（label）を付与
+    const sortedPaths = Array.from(genreSet).sort();
+    const result = [
+      { id: '未分類', label: '未分類', level: 0 },
+      ...sortedPaths.map(path => {
+        const parts = path.split('/');
+        return {
+          id: path,
+          label: parts[parts.length - 1], // 最後の要素を表示名にする
+          level: parts.length - 1         // スラッシュの数でインデントを決める
+        };
+      })
+    ];
+    return result;
+  }, [blogArticles]);
+
   const renderContent = (text: string) => {
     const parts = text.split(/(!\[.*?\]\(.*?\))/g);
     return parts.map((part, index) => {
@@ -186,7 +206,6 @@ export default function MunakataBbsAndBlog() {
       <main style={{ maxWidth: '1000px', margin: '0 auto', padding: '30px 20px' }}>
         
         {/* ================= プロフィール設定 ================= */}
-        {view === 'profile' && ( ... 省略せずに記載します ... )}
         {view === 'profile' && (
           <section style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd' }}>
             <h2 style={{ color: '#5a3d8a', marginTop: 0 }}>⚙️ プロフィールの設定</h2>
@@ -263,11 +282,11 @@ export default function MunakataBbsAndBlog() {
           </div>
         )}
 
-        {/* ================= ブログ機能：記事一覧（2カラムレイアウト） ================= */}
+        {/* ================= ブログ機能：記事一覧 ================= */}
         {view === 'blog_list' && (
           <div style={{ display: 'flex', gap: '30px', alignItems: 'flex-start' }}>
             
-            {/* 左サイドバー：ジャンルツリー */}
+            {/* 左サイドバー：動的ジャンルツリー */}
             <div style={{ width: '220px', flexShrink: 0, backgroundColor: '#f9f9f9', padding: '20px', borderRadius: '12px', border: '1px solid #eee', position: 'sticky', top: '100px' }}>
               <h3 style={{ fontSize: '16px', color: '#5a3d8a', marginTop: 0, borderBottom: '2px solid #dcd0ea', paddingBottom: '10px', marginBottom: '15px' }}>📁 ジャンル</h3>
               <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '14px', lineHeight: '2.2' }}>
@@ -277,7 +296,7 @@ export default function MunakataBbsAndBlog() {
                 >
                   🌐 全ての記事
                 </li>
-                {GENRES.filter(g => g.id !== '未分類').map((g) => (
+                {dynamicGenres.filter(g => g.id !== '未分類').map((g) => (
                   <li 
                     key={g.id} 
                     onClick={() => setSelectedGenre(g.id)} 
@@ -288,7 +307,7 @@ export default function MunakataBbsAndBlog() {
                       color: selectedGenre === g.id ? '#b91c1c' : '#555'
                     }}
                   >
-                    {g.label}
+                    {g.level === 0 ? '📂' : '📄'} {g.label}
                   </li>
                 ))}
               </ul>
@@ -298,7 +317,7 @@ export default function MunakataBbsAndBlog() {
             <div style={{ flexGrow: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h2 style={{ color: '#333', margin: 0 }}>
-                  {selectedGenre ? `「${GENRES.find(g => g.id === selectedGenre)?.label.replace(/📁 |📄 /,'')}」の記事` : '最新の記事'}
+                  {selectedGenre ? `「${dynamicGenres.find(g => g.id === selectedGenre)?.label}」の記事` : '最新の記事'}
                 </h2>
                 <button onClick={() => { setTitle(''); setContent(''); setImageFile(null); setCoverPreview(''); setGenre('未分類'); setView('blog_write'); }} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 20px', border: 'none', borderRadius: '20px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 5px rgba(0,0,0,0.1)' }}>
                   ＋ 記事を書く
@@ -307,7 +326,7 @@ export default function MunakataBbsAndBlog() {
 
               <div style={{ display: 'grid', gap: '25px' }}>
                 {blogArticles
-                  .filter(article => selectedGenre === null || article.genre?.startsWith(selectedGenre)) // 前方一致で子ジャンルも含む
+                  .filter(article => selectedGenre === null || article.genre?.startsWith(selectedGenre))
                   .map(article => (
                   <article key={article.id} onClick={() => { setActiveArticle(article); setView('blog_read'); }} style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', display: 'flex', flexDirection: 'column' }}>
                     {article.image_url && (
@@ -354,18 +373,28 @@ export default function MunakataBbsAndBlog() {
               }} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }} />
             </div>
 
-            {/* ジャンル選択 */}
-            <div style={{ marginBottom: '20px' }}>
-              <span style={{ fontSize: '14px', fontWeight: 'bold', marginRight: '10px' }}>📁 ジャンル:</span>
-              <select value={genre} onChange={(e) => setGenre(e.target.value)} style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc' }}>
-                {GENRES.map(g => <option key={g.id} value={g.id}>{g.label.replace(/📁 |📄 /,'')}</option>)}
-              </select>
+            {/* ★自由入力ジャンル選択（サジェスト付き） */}
+            <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <span style={{ fontSize: '14px', fontWeight: 'bold' }}>📁 ジャンル:</span>
+              <input 
+                type="text" 
+                list="genre-list"
+                value={genre} 
+                onChange={(e) => setGenre(e.target.value)} 
+                placeholder="例: hard/board/kicker"
+                style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc', flexGrow: 1, maxWidth: '300px' }} 
+              />
+              {/* HTMLのdatalist機能を使って、既存のジャンルをサジェスト表示 */}
+              <datalist id="genre-list">
+                {dynamicGenres.map(g => <option key={g.id} value={g.id} />)}
+              </datalist>
+              <span style={{ fontSize: '12px', color: '#666' }}>※自由に作成可能。「/」で区切るとフォルダになります。</span>
             </div>
 
             {/* タイトル */}
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="記事のタイトル" style={{ width: '100%', fontSize: '32px', fontWeight: 'bold', border: 'none', borderBottom: '1px solid #eee', padding: '15px 0', marginBottom: '20px', outline: 'none' }} />
 
-            {/* ★本文ツールバー（画像挿入ボタン） */}
+            {/* 本文ツールバー（画像挿入ボタン） */}
             <div style={{ backgroundColor: '#f1f1f1', padding: '10px', borderRadius: '8px', marginBottom: '10px', display: 'flex', gap: '10px' }}>
               <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '14px', color: '#555', backgroundColor: '#fff', padding: '5px 10px', borderRadius: '5px', border: '1px solid #ccc' }}>
                 <span>{insertingImage ? '⏳ アップロード中...' : '🖼️ 本文に画像を挿入'}</span>
@@ -400,7 +429,7 @@ export default function MunakataBbsAndBlog() {
                 </div>
               </div>
 
-              {/* ★本文表示（画像タグをレンダリング） */}
+              {/* 本文表示（画像タグをレンダリング） */}
               <div style={{ fontSize: '18px', lineHeight: '2.0', color: '#333', letterSpacing: '0.03em', whiteSpace: 'pre-wrap' }}>
                 {renderContent(activeArticle.content)}
               </div>
