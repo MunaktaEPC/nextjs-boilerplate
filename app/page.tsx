@@ -25,7 +25,6 @@ export default function RoboCupPortal() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   
-  // プロフィール設定
   const [profileName, setProfileName] = useState('名無しさん');
   const [profileAvatar, setProfileAvatar] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -33,14 +32,14 @@ export default function RoboCupPortal() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminPassInput, setAdminPassInput] = useState('');
 
-  // 投稿用ステート
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState(''); 
   const [genre, setGenre] = useState('未分類');
   const [isNewGenre, setIsNewGenre] = useState(false);
-  
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
   const [activeThread, setActiveThread] = useState<Post | null>(null);
   const [replyContent, setReplyContent] = useState('');
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
@@ -52,7 +51,6 @@ export default function RoboCupPortal() {
     const savedAvatar = localStorage.getItem('robocup_avatar');
     const savedAdmin = localStorage.getItem('robocup_is_admin') === 'true';
     const savedLikes = JSON.parse(localStorage.getItem('robocup_liked_ids') || '[]');
-    
     if (savedName) setProfileName(savedName);
     if (savedAvatar) { setProfileAvatar(savedAvatar); setAvatarPreview(savedAvatar); }
     if (savedAdmin) setIsAdmin(true);
@@ -80,6 +78,28 @@ export default function RoboCupPortal() {
     if (error) return null;
     const { data: pub } = supabase.storage.from('images').getPublicUrl(fileName);
     return { url: pub.publicUrl, name: file.name };
+  }
+
+  // 本文中にファイルを挿入する処理
+  async function handleFileInsert(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLoading(true);
+    const res = await uploadFile(file);
+    if (res) {
+      const isImage = file.type.startsWith('image/');
+      const tag = isImage ? `![${res.name}](${res.url})` : `[${res.name}](${res.url})`;
+      const textarea = textareaRef.current;
+      if (textarea) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const newContent = content.substring(0, start) + tag + content.substring(end);
+        setContent(newContent);
+      } else {
+        setContent(prev => prev + "\n" + tag);
+      }
+    }
+    setLoading(false);
   }
 
   async function handleLike(post: Post) {
@@ -142,7 +162,6 @@ export default function RoboCupPortal() {
         const res = await uploadFile(imageFile);
         if (res) imageUrl = res.url;
       }
-      // 400 Bad Request を避けるため likes を除外して送信
       const { error } = await supabase.from('posts').insert([{ 
         title, content, image_url: imageUrl, author_name: profileName, author_avatar: profileAvatar, category: 'blog', genre: genre || '未分類'
       }]);
@@ -175,7 +194,6 @@ export default function RoboCupPortal() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8f9fa', color: '#333', fontFamily: 'sans-serif' }}>
       
-      {/* ヘッダー：アイコン削除、名前変更 */}
       <header style={{ backgroundColor: '#fff', borderBottom: '3px solid #5a3d8a', padding: '15px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
         <h1 onClick={() => setView('home')} style={{ margin: 0, fontSize: '20px', color: '#5a3d8a', cursor: 'pointer', fontWeight: '900' }}>
           ロボカップ情報共有
@@ -186,7 +204,6 @@ export default function RoboCupPortal() {
         </div>
       </header>
 
-      {/* ナビゲーション */}
       <nav style={{ padding: '10px 40px', display: 'flex', gap: '10px', backgroundColor: '#fff', borderBottom: '1px solid #eee' }}>
         <button onClick={() => setView('home')} style={{ padding: '8px 20px', border: 'none', borderRadius: '5px', backgroundColor: view === 'home' ? '#5a3d8a' : 'transparent', color: view === 'home' ? '#fff' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>🏠 Home</button>
         <button onClick={() => setView('bbs')} style={{ padding: '8px 20px', border: 'none', borderRadius: '5px', backgroundColor: view.startsWith('bbs') ? '#5a3d8a' : 'transparent', color: view.startsWith('bbs') ? '#fff' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>💬 掲示板</button>
@@ -208,13 +225,21 @@ export default function RoboCupPortal() {
           </div>
         )}
 
-        {/* 掲示板一覧 */}
+        {/* 掲示板 */}
         {view === 'bbs' && (
           <div>
             <div style={{ backgroundColor: '#f3eef7', padding: '25px', borderRadius: '15px', marginBottom: '30px' }}>
               <h3 style={{ marginTop: 0, color: '#5a3d8a' }}>新規スレッド作成</h3>
               <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトル" style={{ width: '100%', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
-              <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文を入力..." style={{ width: '100%', height: '100px', padding: '12px', borderRadius: '8px', border: '1px solid #ccc' }} />
+              
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ cursor: 'pointer', backgroundColor: '#fff', padding: '5px 15px', borderRadius: '5px', border: '1px solid #ccc', fontSize: '14px' }}>
+                  📎 本文にファイルを添付
+                  <input type="file" onChange={handleFileInsert} style={{ display: 'none' }} />
+                </label>
+              </div>
+
+              <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文を入力..." style={{ width: '100%', height: '100px', padding: '12px', borderRadius: '8px', border: '1px solid #ccc' }} />
               <button onClick={handleBbsSubmit} style={{ marginTop: '10px', backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>投稿する</button>
             </div>
             {mainThreads.map(t => (
@@ -229,7 +254,6 @@ export default function RoboCupPortal() {
           </div>
         )}
 
-        {/* 掲示板スレッド詳細 */}
         {view === 'bbs_read' && activeThread && (
           <div>
             <button onClick={() => setView('bbs')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '20px' }}>← 戻る</button>
@@ -243,19 +267,17 @@ export default function RoboCupPortal() {
               </div>
               <div style={{ fontSize: '16px', lineHeight: '1.8' }}>{renderContent(activeThread.content)}</div>
             </div>
-
             <div style={{ marginBottom: '40px' }}>
               {getReplies(activeThread.id).map(r => (
                 <div key={r.id} style={{ display: 'flex', gap: '15px', marginBottom: '20px', padding: '15px', backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #eee' }}>
                   <img src={r.author_avatar || 'https://via.placeholder.com/40'} style={{ width: '40px', height: '40px', borderRadius: '50%' }} />
                   <div style={{ flexGrow: 1 }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '5px' }}>{r.author_name} <span style={{ fontWeight: 'normal', color: '#aaa', fontSize: '11px' }}>{new Date(r.created_at).toLocaleString()}</span></div>
+                    <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '5px' }}>{r.author_name}</div>
                     <div style={{ fontSize: '15px' }}>{renderContent(r.content)}</div>
                   </div>
                 </div>
               ))}
             </div>
-
             <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '15px', border: '1px solid #ddd' }}>
               <textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} placeholder="返信を書く..." style={{ width: '100%', height: '80px', padding: '15px', borderRadius: '10px', border: '1px solid #eee' }} />
               <button onClick={() => handleReplySubmit(activeThread.id)} style={{ marginTop: '10px', backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>返信する</button>
@@ -339,13 +361,23 @@ export default function RoboCupPortal() {
                 <button onClick={() => setIsNewGenre(!isNewGenre)} style={{ padding: '0 15px', borderRadius: '8px', border: '1px solid #ccc', background: '#f9f9f9', cursor: 'pointer' }}>{isNewGenre ? '戻る' : '新規'}</button>
               </div>
             </div>
+            
+            {/* ファイル直接添付ボタン */}
+            <div style={{ marginBottom: '15px', display: 'flex', gap: '10px' }}>
+              <label style={{ cursor: 'pointer', backgroundColor: '#f0f0f0', padding: '8px 20px', borderRadius: '8px', border: '1px solid #ccc', fontSize: '14px', fontWeight: 'bold' }}>
+                📎 本文にファイルを直接添付
+                <input type="file" onChange={handleFileInsert} style={{ display: 'none' }} />
+              </label>
+              <span style={{ fontSize: '12px', color: '#888', alignSelf: 'center' }}>※カーソルの位置に挿入されます（画像も可）</span>
+            </div>
+
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトルを入力..." style={{ width: '100%', fontSize: '28px', fontWeight: 'bold', border: 'none', borderBottom: '2px solid #eee', marginBottom: '30px', padding: '10px 0', outline: 'none' }} />
-            <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文を入力...（ファイル添付：[名前](URL)）" style={{ width: '100%', minHeight: '400px', border: 'none', outline: 'none', fontSize: '18px', lineHeight: '1.6' }} />
+            <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)} placeholder="ここに本文を書く..." style={{ width: '100%', minHeight: '400px', border: 'none', outline: 'none', fontSize: '18px', lineHeight: '1.6' }} />
             <button onClick={handleBlogSubmit} disabled={loading} style={{ width: '100%', backgroundColor: '#00c58e', color: '#fff', padding: '18px', border: 'none', borderRadius: '12px', fontSize: '18px', fontWeight: 'bold', cursor: 'pointer', marginTop: '30px' }}>{loading ? "投稿中..." : "記事を公開する"}</button>
           </div>
         )}
 
-        {/* プロフィール設定：管理者パスワード欄あり */}
+        {/* 設定 */}
         {view === 'profile' && (
           <section style={{ maxWidth: '500px', margin: '0 auto', backgroundColor: '#fff', padding: '40px', borderRadius: '20px', border: '1px solid #ddd' }}>
             <h2 style={{ color: '#5a3d8a', marginBottom: '30px' }}>ユーザー設定</h2>
@@ -367,7 +399,6 @@ export default function RoboCupPortal() {
             <button onClick={saveProfile} style={{ width: '100%', backgroundColor: '#5a3d8a', color: '#fff', padding: '15px', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer' }}>設定を保存する</button>
           </section>
         )}
-
       </main>
     </div>
   );
