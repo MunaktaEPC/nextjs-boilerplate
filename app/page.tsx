@@ -19,7 +19,7 @@ interface Post {
   category: string;
   genre?: string;
   parent_id?: string;
-  likes?: number; // ブログ用いいね
+  likes?: number;
 }
 
 export default function RoboCupPortal() {
@@ -106,10 +106,16 @@ export default function RoboCupPortal() {
     e.target.value = '';
   }
 
+  // いいね機能の修正（即時反映）
   async function handleLike(post: Post) {
     const newLikes = (post.likes || 0) + 1;
-    await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
-    fetchData();
+    const { error } = await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
+    if (!error) {
+      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: newLikes } : p));
+      if (activeArticle?.id === post.id) {
+        setActiveArticle({ ...activeArticle, likes: newLikes });
+      }
+    }
   }
 
   async function saveProfile() {
@@ -132,13 +138,18 @@ export default function RoboCupPortal() {
     setLoading(false);
   }
 
+  // 削除機能の修正
   async function handleDeletePost(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("本当に削除しますか？")) return;
     setLoading(true);
-    await supabase.from('posts').delete().eq('id', id);
-    await supabase.from('posts').delete().eq('parent_id', id);
-    fetchData();
+    const { error } = await supabase.from('posts').delete().eq('id', id);
+    if (!error) {
+      await supabase.from('posts').delete().eq('parent_id', id);
+      if (activeThread?.id === id) setView('bbs');
+      if (activeArticle?.id === id) setView('blog_list');
+      fetchData();
+    }
     setLoading(false);
   }
 
@@ -217,7 +228,7 @@ export default function RoboCupPortal() {
           </div>
         )}
 
-        {/* BBS READ (画像通りの返信UI) */}
+        {/* BBS READ */}
         {view === 'bbs_read' && activeThread && (
           <div>
             <button onClick={() => setView('bbs')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '15px' }}>← 戻る</button>
@@ -229,7 +240,6 @@ export default function RoboCupPortal() {
               <div style={{ padding: '30px', lineHeight: '1.8' }}>{renderContent(activeThread.content)}</div>
             </div>
 
-            {/* 指示通りの返信リスト: 四角で区切らず、名前と内容を配置 */}
             <div style={{ padding: '0 10px', marginBottom: '30px' }}>
               {getReplies(activeThread.id).map((r) => (
                 <div key={r.id} style={{ padding: '15px 0', borderBottom: '1px solid #f0f0f0' }}>
@@ -313,7 +323,7 @@ export default function RoboCupPortal() {
           </div>
         )}
 
-        {/* BLOG READ (いいね・返信機能付き) */}
+        {/* BLOG READ */}
         {view === 'blog_read' && activeArticle && (
           <article style={{ maxWidth: '800px', margin: '0 auto' }}>
             <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '20px' }}>← 戻る</button>
@@ -323,18 +333,23 @@ export default function RoboCupPortal() {
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '30px', borderBottom: '1px solid #eee', paddingBottom: '20px' }}>
               <img src={activeArticle.author_avatar || 'https://via.placeholder.com/40'} style={{ width: '40px', height: '40px', borderRadius: '50%' }} />
               <div><div style={{ fontWeight: 'bold' }}>{activeArticle.author_name}</div><div style={{ fontSize: '12px', color: '#888' }}>{new Date(activeArticle.created_at).toLocaleString()}</div></div>
-              <button onClick={() => handleLike(activeArticle)} style={{ marginLeft: 'auto', backgroundColor: '#fff', border: '1px solid #ff4b5c', color: '#ff4b5c', padding: '8px 20px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold' }}>❤️ いいね {activeArticle.likes || 0}</button>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: '10px' }}>
+                <button onClick={() => handleLike(activeArticle)} style={{ backgroundColor: '#fff', border: '1px solid #ff4b5c', color: '#ff4b5c', padding: '8px 20px', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold' }}>❤️ いいね {activeArticle.likes || 0}</button>
+                {isAdmin && <button onClick={() => handleDeletePost(activeArticle.id)} style={{ backgroundColor: '#fff', color: '#d32f2f', border: '1px solid #d32f2f', padding: '8px 15px', borderRadius: '20px', cursor: 'pointer' }}>🗑️ 削除</button>}
+              </div>
             </div>
             <div style={{ fontSize: '18px', lineHeight: '1.8', marginBottom: '50px' }}>{renderContent(activeArticle.content)}</div>
             
-            {/* ブログコメント欄 */}
             <div style={{ borderTop: '2px solid #eee', paddingTop: '30px' }}>
               <h3 style={{ fontSize: '18px', marginBottom: '20px' }}>コメント ({getReplies(activeArticle.id).length})</h3>
               {getReplies(activeArticle.id).map(r => (
                 <div key={r.id} style={{ padding: '15px 0', borderBottom: '1px solid #f0f0f0' }}>
-                  <div style={{ display: 'flex', gap: '10px', marginBottom: '5px' }}>
-                    <span style={{ fontWeight: 'bold', color: '#5a3d8a' }}>{r.author_name}</span>
-                    <span style={{ fontSize: '11px', color: '#aaa' }}>{new Date(r.created_at).toLocaleString()}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <span style={{ fontWeight: 'bold', color: '#5a3d8a' }}>{r.author_name}</span>
+                      <span style={{ fontSize: '11px', color: '#aaa' }}>{new Date(r.created_at).toLocaleString()}</span>
+                    </div>
+                    {isAdmin && <button onClick={() => handleDeletePost(r.id)} style={{ border: 'none', background: 'none', color: '#ccc', cursor: 'pointer' }}>🗑️</button>}
                   </div>
                   <div>{renderContent(r.content)}</div>
                 </div>
