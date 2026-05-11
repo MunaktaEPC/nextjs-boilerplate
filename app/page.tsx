@@ -6,8 +6,6 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const LOGO_URL = "https://wkvetwjywdkwairqztsb.supabase.co/storage/v1/object/public/images/0.7302238554901188.png";
-
 interface Post {
   id: string;
   created_at: string;
@@ -106,15 +104,22 @@ export default function RoboCupPortal() {
     e.target.value = '';
   }
 
-  // いいね機能の修正（即時反映）
+  // いいね機能の完全修正
   async function handleLike(post: Post) {
-    const newLikes = (post.likes || 0) + 1;
+    const currentLikes = post.likes || 0;
+    const newLikes = currentLikes + 1;
+    
+    // 画面上の数字を先に更新（即時性を出す）
+    setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: newLikes } : p));
+    if (activeArticle?.id === post.id) {
+      setActiveArticle({ ...activeArticle, likes: newLikes });
+    }
+
+    // データベースを更新
     const { error } = await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id);
-    if (!error) {
-      setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: newLikes } : p));
-      if (activeArticle?.id === post.id) {
-        setActiveArticle({ ...activeArticle, likes: newLikes });
-      }
+    if (error) {
+      console.error("Like failed:", error);
+      fetchData(); // 失敗した場合は元に戻す
     }
   }
 
@@ -130,7 +135,6 @@ export default function RoboCupPortal() {
     if (adminPassInput === 'admin1234') {
       localStorage.setItem('robocup_is_admin', 'true');
       setIsAdmin(true);
-      alert("管理者権限を確認しました");
     }
     setAdminPassInput('');
     alert("保存しました");
@@ -138,7 +142,6 @@ export default function RoboCupPortal() {
     setLoading(false);
   }
 
-  // 削除機能の修正
   async function handleDeletePost(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("本当に削除しますか？")) return;
@@ -194,10 +197,9 @@ export default function RoboCupPortal() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8f9fa', color: '#333' }}>
       
-      {/* HEADER */}
+      {/* HEADER: アイコン削除 */}
       <header style={{ backgroundColor: '#fff', borderBottom: '3px solid #5a3d8a', padding: '15px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', cursor: 'pointer' }} onClick={() => setView('home')}>
-          <img src={LOGO_URL} style={{ width: '40px', height: '40px', borderRadius: '50%', border: '2px solid #5a3d8a' }} />
+        <div style={{ cursor: 'pointer' }} onClick={() => setView('home')}>
           <h1 style={{ margin: 0, fontSize: '20px', color: '#5a3d8a', fontWeight: '900' }}>ロボカップ情報共有</h1>
         </div>
         <div onClick={() => setView('profile')} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '6px 15px', backgroundColor: isAdmin ? '#ffebee' : '#f3eef7', borderRadius: '30px' }}>
@@ -206,7 +208,6 @@ export default function RoboCupPortal() {
         </div>
       </header>
 
-      {/* NAV */}
       <nav style={{ padding: '10px 40px', display: 'flex', gap: '10px', backgroundColor: '#fff', borderBottom: '1px solid #eee' }}>
         <button onClick={() => setView('home')} style={{ padding: '8px 20px', border: 'none', borderRadius: '5px', backgroundColor: view === 'home' ? '#5a3d8a' : 'transparent', color: view === 'home' ? '#fff' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>🏠 Home</button>
         <button onClick={() => setView('bbs')} style={{ padding: '8px 20px', border: 'none', borderRadius: '5px', backgroundColor: view.startsWith('bbs') ? '#5a3d8a' : 'transparent', color: view.startsWith('bbs') ? '#fff' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>💬 掲示板</button>
@@ -215,6 +216,7 @@ export default function RoboCupPortal() {
 
       <main style={{ maxWidth: '1100px', margin: '0 auto', padding: '30px 20px' }}>
         
+        {/* HOME */}
         {view === 'home' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
             <div onClick={() => setView('bbs')} style={{ backgroundColor: '#fff', padding: '30px', borderRadius: '15px', border: '1px solid #eee', cursor: 'pointer', textAlign: 'center' }}>
@@ -228,7 +230,7 @@ export default function RoboCupPortal() {
           </div>
         )}
 
-        {/* BBS READ */}
+        {/* BBS READ (枠なしUI) */}
         {view === 'bbs_read' && activeThread && (
           <div>
             <button onClick={() => setView('bbs')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '15px' }}>← 戻る</button>
