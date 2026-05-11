@@ -24,8 +24,8 @@ interface Post {
 }
 
 export default function MunakataBbsAndBlog() {
-  // ★ viewに 'bbs_read' を追加
-  const [view, setView] = useState<'bbs' | 'bbs_read' | 'blog_list' | 'blog_write' | 'blog_read' | 'profile'>('bbs');
+  // ★ 初期表示を 'home'（ポータル画面）に変更
+  const [view, setView] = useState<'home' | 'bbs' | 'bbs_read' | 'blog_list' | 'blog_write' | 'blog_read' | 'profile'>('home');
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   
@@ -34,7 +34,7 @@ export default function MunakataBbsAndBlog() {
   const [profileAvatar, setProfileAvatar] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState('');
-  const [isAdmin, setIsAdmin] = useState(false); // ★ 管理者フラグ
+  const [isAdmin, setIsAdmin] = useState(false);
   const [adminPassInput, setAdminPassInput] = useState('');
 
   // 入力用
@@ -43,10 +43,10 @@ export default function MunakataBbsAndBlog() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState(''); 
   const [genre, setGenre] = useState('未分類');
-  const textareaRef = useRef<HTMLTextAreaElement>(null); // ★ カーソル位置取得用
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   // 掲示板・ブログ閲覧用
-  const [activeThread, setActiveThread] = useState<Post | null>(null); // ★ 掲示板スレッド用
+  const [activeThread, setActiveThread] = useState<Post | null>(null);
   const [replyContent, setReplyContent] = useState('');
   const [activeArticle, setActiveArticle] = useState<Post | null>(null);
   const [selectedGenre, setSelectedGenre] = useState<string | null>(null);
@@ -93,7 +93,6 @@ export default function MunakataBbsAndBlog() {
     localStorage.setItem('munakata_name', profileName);
     localStorage.setItem('munakata_avatar', newAvatarUrl);
     
-    // ★ 管理者パスワードの判定（今回は「admin1234」としています。お好きに変更してください）
     if (adminPassInput === 'admin1234') {
       localStorage.setItem('munakata_is_admin', 'true');
       setIsAdmin(true);
@@ -102,22 +101,18 @@ export default function MunakataBbsAndBlog() {
 
     setAvatarFile(null); setAvatarPreview(''); setAdminPassInput('');
     alert("プロフィールを保存しました！");
-    setView('bbs');
+    setView('home'); // 保存後はホームに戻る
     setLoading(false);
   }
 
-  // ★ 削除機能
   async function handleDeletePost(id: string, e?: React.MouseEvent) {
-    if (e) e.stopPropagation(); // クリックイベントの伝播を防ぐ
+    if (e) e.stopPropagation();
     if (!confirm("本当にこの投稿を削除しますか？\n（スレッドの場合は返信もすべて消えます）")) return;
     
     setLoading(true);
-    // 該当の投稿を削除
     await supabase.from('posts').delete().eq('id', id);
-    // スレッド親だった場合、紐づく返信もまとめて削除
     await supabase.from('posts').delete().eq('parent_id', id);
     
-    // 閲覧中の画面を閉じる処理
     if (activeThread?.id === id) setView('bbs');
     if (activeArticle?.id === id) setView('blog_list');
     
@@ -151,7 +146,6 @@ export default function MunakataBbsAndBlog() {
     setView('blog_list'); fetchData(); setLoading(false);
   }
 
-  // ★ 画像をカーソル位置に挿入する機能
   async function handleInsertImageToContent(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -160,14 +154,12 @@ export default function MunakataBbsAndBlog() {
     if (url) {
       const textarea = textareaRef.current;
       if (textarea) {
-        // カーソル位置を取得して間に画像を挟む
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
         const before = content.substring(0, start);
         const after = content.substring(end, content.length);
         setContent(`${before}\n![画像](${url})\n${after}`);
       } else {
-        // 取得できない場合は末尾に追加
         setContent(prev => prev + `\n![画像](${url})\n`);
       }
     }
@@ -185,13 +177,11 @@ export default function MunakataBbsAndBlog() {
     fetchData(); setLoading(false);
   }
 
-  // データの振り分け
   const mainThreads = posts.filter(p => !p.parent_id);
   const bbsThreads = mainThreads.filter(p => p.category !== 'blog');
   const blogArticles = mainThreads.filter(p => p.category === 'blog');
   const getReplies = (parentId: string) => posts.filter(p => p.parent_id === parentId).reverse();
 
-  // ブログジャンル生成
   const dynamicGenres = useMemo(() => {
     const genreSet = new Set<string>();
     blogArticles.forEach(article => {
@@ -230,11 +220,11 @@ export default function MunakataBbsAndBlog() {
       
       {/* ヘッダー */}
       <header style={{ backgroundColor: '#fff', borderBottom: '4px solid #5a3d8a', padding: '15px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', cursor: 'pointer' }} onClick={() => setView('home')}>
           <img src={LOGO_URL} alt="Logo" style={{ width: '55px', height: '55px', borderRadius: '50%', border: '2px solid #5a3d8a', objectFit: 'cover' }} />
           <div>
-            <h1 style={{ margin: 0, color: '#5a3d8a', fontSize: '26px', fontWeight: 'bold' }}>MunakataEPC_BLOG</h1>
-            <span style={{ fontSize: '13px', color: '#666' }}>〜 公式交流サイト 〜</span>
+            <h1 style={{ margin: 0, color: '#5a3d8a', fontSize: '26px', fontWeight: 'bold' }}>MunakataEPC_PORTAL</h1>
+            <span style={{ fontSize: '13px', color: '#666' }}>〜 公式ポータルサイト 〜</span>
           </div>
         </div>
         <div onClick={() => setView('profile')} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '8px 15px', backgroundColor: isAdmin ? '#ffebee' : '#f3eef7', borderRadius: '30px', border: `1px solid ${isAdmin ? '#ef9a9a' : '#dcd0ea'}` }}>
@@ -245,13 +235,76 @@ export default function MunakataBbsAndBlog() {
       </header>
 
       {/* ナビゲーション */}
-      <nav style={{ padding: '20px 40px', display: 'flex', gap: '15px', borderBottom: '1px solid #eee', backgroundColor: '#fff' }}>
-        <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('bbs') ? '#5a3d8a' : '#eee', color: view.startsWith('bbs') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>💬 掲示板</button>
-        <button onClick={() => setView('blog_list')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('blog') ? '#5a3d8a' : '#eee', color: view.startsWith('blog') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold' }}>🖋️ ブログ</button>
+      <nav style={{ padding: '15px 40px', display: 'flex', gap: '15px', borderBottom: '1px solid #eee', backgroundColor: '#fff', overflowX: 'auto' }}>
+        <button onClick={() => setView('home')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'home' ? '#5a3d8a' : '#eee', color: view === 'home' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🏠 ホーム</button>
+        <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('bbs') ? '#5a3d8a' : '#eee', color: view.startsWith('bbs') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>💬 掲示板</button>
+        <button onClick={() => setView('blog_list')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('blog') ? '#5a3d8a' : '#eee', color: view.startsWith('blog') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🖋️ ブログ</button>
+        <button onClick={() => alert('スケジュール機能は現在準備中です！')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: '#eee', color: '#888', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>📅 スケジュール</button>
+        <button onClick={() => alert('ギャラリー機能は現在準備中です！')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: '#eee', color: '#888', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>📷 ギャラリー</button>
       </nav>
 
       <main style={{ maxWidth: '1000px', margin: '0 auto', padding: '30px 20px' }}>
         
+        {/* ================= ホーム（ポータル）画面 ================= */}
+        {view === 'home' && (
+          <div>
+            <div style={{ textAlign: 'center', marginBottom: '40px', padding: '40px 20px', backgroundColor: '#f8f5fb', borderRadius: '15px', border: '1px solid #dcd0ea' }}>
+              <h2 style={{ color: '#5a3d8a', fontSize: '28px', margin: '0 0 10px 0' }}>MunakataEPC ポータルへようこそ！</h2>
+              <p style={{ color: '#555', margin: 0 }}>ここは部員同士の交流や情報共有のための総合サイトです。目的のメニューを選んでください。</p>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+              
+              {/* 掲示板パネル */}
+              <div 
+                onClick={() => setView('bbs')}
+                style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '15px', padding: '30px', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}
+                onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-5px)'; e.currentTarget.style.borderColor = '#5a3d8a'; e.currentTarget.style.boxShadow = '0 8px 15px rgba(90,61,138,0.15)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#ddd'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)'; }}
+              >
+                <div style={{ fontSize: '48px', marginBottom: '15px' }}>💬</div>
+                <h3 style={{ color: '#333', margin: '0 0 10px 0' }}>交流掲示板</h3>
+                <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>部員同士で自由にスレッドを立てて、意見交換や雑談ができます。</p>
+                <div style={{ marginTop: '15px', fontSize: '12px', color: '#fff', backgroundColor: '#5a3d8a', display: 'inline-block', padding: '4px 12px', borderRadius: '20px' }}>スレッド数: {bbsThreads.length}</div>
+              </div>
+
+              {/* ブログパネル */}
+              <div 
+                onClick={() => setView('blog_list')}
+                style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '15px', padding: '30px', cursor: 'pointer', textAlign: 'center', transition: 'all 0.2s', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}
+                onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-5px)'; e.currentTarget.style.borderColor = '#00c58e'; e.currentTarget.style.boxShadow = '0 8px 15px rgba(0,197,142,0.15)'; }}
+                onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#ddd'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)'; }}
+              >
+                <div style={{ fontSize: '48px', marginBottom: '15px' }}>🖋️</div>
+                <h3 style={{ color: '#333', margin: '0 0 10px 0' }}>活動ブログ</h3>
+                <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>日々の活動記録や、ジャンルごとに分けた専門的な記事を投稿・閲覧できます。</p>
+                <div style={{ marginTop: '15px', fontSize: '12px', color: '#fff', backgroundColor: '#00c58e', display: 'inline-block', padding: '4px 12px', borderRadius: '20px' }}>記事数: {blogArticles.length}</div>
+              </div>
+
+              {/* スケジュールパネル（準備中） */}
+              <div 
+                onClick={() => alert('スケジュール機能は現在準備中です！乞うご期待！')}
+                style={{ backgroundColor: '#f9f9f9', border: '1px dashed #ccc', borderRadius: '15px', padding: '30px', cursor: 'pointer', textAlign: 'center', opacity: 0.7 }}
+              >
+                <div style={{ fontSize: '48px', marginBottom: '15px', filter: 'grayscale(100%)' }}>📅</div>
+                <h3 style={{ color: '#888', margin: '0 0 10px 0' }}>スケジュール (準備中)</h3>
+                <p style={{ color: '#999', fontSize: '14px', margin: 0 }}>今後の練習日程や大会・イベントの予定をカレンダーで確認できるようになります。</p>
+              </div>
+
+              {/* ギャラリーパネル（準備中） */}
+              <div 
+                onClick={() => alert('ギャラリー機能は現在準備中です！乞うご期待！')}
+                style={{ backgroundColor: '#f9f9f9', border: '1px dashed #ccc', borderRadius: '15px', padding: '30px', cursor: 'pointer', textAlign: 'center', opacity: 0.7 }}
+              >
+                <div style={{ fontSize: '48px', marginBottom: '15px', filter: 'grayscale(100%)' }}>📷</div>
+                <h3 style={{ color: '#888', margin: '0 0 10px 0' }}>ギャラリー (準備中)</h3>
+                <p style={{ color: '#999', fontSize: '14px', margin: 0 }}>活動中の写真や動画をまとめて見られるアルバム機能を追加予定です。</p>
+              </div>
+
+            </div>
+          </div>
+        )}
+
         {/* ================= プロフィール設定 ================= */}
         {view === 'profile' && (
           <section style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd' }}>
@@ -271,7 +324,6 @@ export default function MunakataBbsAndBlog() {
               )}
             </div>
 
-            {/* 管理者権限エリア */}
             {!isAdmin && (
               <div style={{ marginBottom: '30px', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '8px', border: '1px dashed #ccc' }}>
                 <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '5px' }}>🔑 管理者用パスワード (任意)</label>
@@ -344,7 +396,6 @@ export default function MunakataBbsAndBlog() {
           <div>
             <button onClick={() => setView('bbs')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px', marginBottom: '20px' }}>← スレッド一覧に戻る</button>
             
-            {/* スレッド親 */}
             <article style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '12px', overflow: 'hidden', marginBottom: '30px' }}>
               <div style={{ backgroundColor: '#f8f5fb', padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
@@ -366,7 +417,6 @@ export default function MunakataBbsAndBlog() {
               </div>
             </article>
 
-            {/* 返信一覧 */}
             <h3 style={{ color: '#5a3d8a', borderBottom: '2px solid #dcd0ea', paddingBottom: '10px' }}>返信一覧 ({getReplies(activeThread.id).length}件)</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '40px' }}>
               {getReplies(activeThread.id).map(reply => (
@@ -386,7 +436,6 @@ export default function MunakataBbsAndBlog() {
               ))}
             </div>
 
-            {/* 返信入力 */}
             <div style={{ backgroundColor: '#f9f9f9', padding: '25px', borderRadius: '12px', border: '1px solid #ddd' }}>
               <h4 style={{ margin: '0 0 15px 0', color: '#333' }}>このスレッドに返信する</h4>
               <textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} placeholder="コメントを書く..." style={{ width: '100%', height: '100px', padding: '15px', marginBottom: '15px', borderRadius: '8px', border: '1px solid #ccc' }} />
@@ -475,7 +524,6 @@ export default function MunakataBbsAndBlog() {
               <span style={{ fontSize: '12px', color: '#888', alignSelf: 'center' }}>※カーソルを合わせた位置に画像が挿入されます</span>
             </div>
 
-            {/* ★ textareaに ref を追加してカーソル位置を監視 */}
             <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)} placeholder="ここに本文を書く..." style={{ width: '100%', minHeight: '400px', fontSize: '18px', lineHeight: '1.8', border: 'none', outline: 'none', resize: 'vertical' }} />
           </div>
         )}
