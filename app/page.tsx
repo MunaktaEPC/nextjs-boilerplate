@@ -110,10 +110,14 @@ export default function RoboCupPortal() {
     setUploadingFile(true);
     const res = await uploadToStorage(file);
     if (res) {
-      // 本文の最後にダウンロードリンクとして挿入
+      // 閲覧画面の最後に追加されるようにする
       const fileLink = `\n\n[📎 添付ファイル: ${res.name}](${res.url})`;
-      setContent(prev => prev + fileLink);
-      alert(`${res.name} を本文に添付しました！`);
+      if (view === 'bbs_read') {
+        setReplyContent(prev => prev + fileLink);
+      } else {
+        setContent(prev => prev + fileLink);
+      }
+      alert(`${res.name} を添付しました！`);
     }
     setUploadingFile(false);
     e.target.value = '';
@@ -139,6 +143,17 @@ export default function RoboCupPortal() {
       title, content, image_url: imageUrl, author_name: profileName, author_avatar: profileAvatar, category: 'bbs'
     }]);
     setTitle(''); setContent(''); setImageFile(null);
+    fetchData(); setLoading(false);
+  }
+
+  // ★ 欠落していた返信送信関数
+  async function handleReplySubmit() {
+    if (!replyContent || !activeThread) return;
+    setLoading(true);
+    await supabase.from('posts').insert([{ 
+      content: replyContent, parent_id: activeThread.id, author_name: profileName, author_avatar: profileAvatar, category: 'bbs'
+    }]);
+    setReplyContent('');
     fetchData(); setLoading(false);
   }
 
@@ -184,17 +199,13 @@ export default function RoboCupPortal() {
     ];
   }, [blogArticles]);
 
-  // コンテンツのレンダリング（画像とファイルリンクに対応）
   const renderContent = (text: string) => {
-    // 画像タグ (![名前](url)) と ファイルリンク ([名前](url)) を分離して処理
     const parts = text.split(/(!\[.*?\]\(.*?\)|\[.*?\]\(.*?\))/g);
     return parts.map((part: string, index: number) => {
-      // 画像の場合
       const imgMatch = part.match(/!\[(.*?)\]\((.*?)\)/);
       if (imgMatch) {
         return <img key={index} src={imgMatch[2]} alt={imgMatch[1]} style={{ maxWidth: '100%', borderRadius: '8px', margin: '15px 0', display: 'block' }} />;
       }
-      // ファイル添付リンクの場合
       const fileMatch = part.match(/\[(.*?)\]\((.*?)\)/);
       if (fileMatch) {
         return (
@@ -210,7 +221,6 @@ export default function RoboCupPortal() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#fdfdfd', color: '#333' }}>
       
-      {/* ヘッダー：名前変更・ロゴ削除 */}
       <header style={{ backgroundColor: '#fff', borderBottom: '4px solid #5a3d8a', padding: '15px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
         <div style={{ cursor: 'pointer' }} onClick={() => setView('home')}>
           <h1 style={{ margin: 0, color: '#5a3d8a', fontSize: '26px', fontWeight: 'bold' }}>ロボカップ情報共有</h1>
@@ -223,7 +233,6 @@ export default function RoboCupPortal() {
         </div>
       </header>
 
-      {/* ナビゲーション */}
       <nav style={{ padding: '15px 40px', display: 'flex', gap: '15px', borderBottom: '1px solid #eee', backgroundColor: '#fff', overflowX: 'auto' }}>
         <button onClick={() => setView('home')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view === 'home' ? '#5a3d8a' : '#eee', color: view === 'home' ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>🏠 ホーム</button>
         <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', borderRadius: '20px', border: 'none', backgroundColor: view.startsWith('bbs') ? '#5a3d8a' : '#eee', color: view.startsWith('bbs') ? '#fff' : '#333', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>💬 掲示板</button>
@@ -232,33 +241,30 @@ export default function RoboCupPortal() {
 
       <main style={{ maxWidth: '1000px', margin: '0 auto', padding: '30px 20px' }}>
         
-        {/* ================= ホーム画面 ================= */}
         {view === 'home' && (
           <div>
             <div style={{ textAlign: 'center', marginBottom: '40px', padding: '40px 20px', backgroundColor: '#f8f5fb', borderRadius: '15px', border: '1px solid #dcd0ea' }}>
               <h2 style={{ color: '#5a3d8a', fontSize: '28px', margin: '0 0 10px 0' }}>ロボカップ情報共有へようこそ</h2>
-              <p style={{ color: '#555', margin: 0 }}>部員同士でロボカップに関する技術、予定、情報を自由に共有しましょう。</p>
+              <p style={{ color: '#555', margin: 0 }}>部員同士で情報を自由に共有しましょう。</p>
             </div>
-
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-              <div onClick={() => setView('bbs')} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '15px', padding: '30px', cursor: 'pointer', textAlign: 'center', transition: '0.2s' }}>
+              <div onClick={() => setView('bbs')} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '15px', padding: '30px', cursor: 'pointer', textAlign: 'center' }}>
                 <div style={{ fontSize: '48px', marginBottom: '15px' }}>💬</div>
                 <h3 style={{ color: '#333', margin: '0 0 10px 0' }}>交流掲示板</h3>
-                <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>質問や雑談、クイックな連絡はこちら。ファイル添付も可能です。</p>
+                <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>クイックな相談や連絡に。</p>
               </div>
-              <div onClick={() => setView('blog_list')} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '15px', padding: '30px', cursor: 'pointer', textAlign: 'center', transition: '0.2s' }}>
+              <div onClick={() => setView('blog_list')} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '15px', padding: '30px', cursor: 'pointer', textAlign: 'center' }}>
                 <div style={{ fontSize: '48px', marginBottom: '15px' }}>🖋️</div>
                 <h3 style={{ color: '#333', margin: '0 0 10px 0' }}>技術ブログ</h3>
-                <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>制作記録、回路図、プログラム解説など。じっくり読ませる記事はこちら。</p>
+                <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>制作記録や解説記事に。</p>
               </div>
             </div>
           </div>
         )}
 
-        {/* ================= プロフィール設定 ================= */}
         {view === 'profile' && (
           <section style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd' }}>
-            <h2 style={{ color: '#5a3d8a', marginTop: 0 }}>⚙️ プロフィールの設定</h2>
+            <h2 style={{ color: '#5a3d8a', marginTop: 0 }}>⚙️ プロフィール設定</h2>
             <div style={{ marginBottom: '20px' }}>
               <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '8px' }}>表示名</label>
               <input type="text" value={profileName} onChange={(e) => setProfileName(e.target.value)} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #ccc' }} />
@@ -275,7 +281,7 @@ export default function RoboCupPortal() {
             </div>
             {!isAdmin && (
               <div style={{ marginBottom: '30px', padding: '15px', backgroundColor: '#f9f9f9', borderRadius: '8px', border: '1px dashed #ccc' }}>
-                <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '5px' }}>🔑 管理者用パスワード</label>
+                <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '5px' }}>🔑 管理者パスワード</label>
                 <input type="password" value={adminPassInput} onChange={(e) => setAdminPassInput(e.target.value)} placeholder="合言葉を入力" style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc' }} />
               </div>
             )}
@@ -283,43 +289,34 @@ export default function RoboCupPortal() {
           </section>
         )}
 
-        {/* ================= 掲示板一覧 ================= */}
         {view === 'bbs' && (
           <div>
             <section style={{ backgroundColor: '#f3eef7', padding: '25px', borderRadius: '15px', border: '1px solid #dcd0ea', marginBottom: '40px' }}>
               <h2 style={{ fontSize: '18px', color: '#5a3d8a', marginTop: 0 }}>💬 新しいスレッド</h2>
               <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトル" style={{ width: '100%', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
               <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文を入力..." style={{ width: '100%', height: '80px', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
-              
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <label style={{ cursor: 'pointer', fontSize: '13px', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #ccc' }}>
-                  📎 ファイル・画像を添付
+                  📎 添付
                   <input type="file" onChange={handleAttachFile} style={{ display: 'none' }} disabled={uploadingFile} />
                 </label>
-                {uploadingFile && <span style={{ fontSize: '12px', color: '#5a3d8a' }}>アップロード中...</span>}
                 <button onClick={handleBbsSubmit} disabled={loading} style={{ marginLeft: 'auto', backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>投稿する</button>
               </div>
             </section>
-
             <div style={{ display: 'grid', gap: '15px' }}>
               {bbsThreads.map(thread => (
                 <article key={thread.id} onClick={() => { setActiveThread(thread); setView('bbs_read'); }} style={{ backgroundColor: '#fff', border: '1px solid #ddd', borderRadius: '12px', padding: '20px', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <h3 style={{ margin: 0, color: '#b91c1c' }}>{thread.title}</h3>
-                    {isAdmin && <button onClick={(e) => handleDeletePost(thread.id, e)} style={{ background: '#ffebee', color: '#c62828', border: 'none', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer', fontSize: '12px' }}>🗑️</button>}
+                    {isAdmin && <button onClick={(e) => handleDeletePost(thread.id, e)} style={{ border: 'none', background: 'none', color: '#c62828', cursor: 'pointer' }}>🗑️</button>}
                   </div>
-                  <div style={{ color: '#666', fontSize: '14px', marginTop: '10px', display: 'flex', gap: '10px' }}>
-                    <span>{thread.author_name}</span>
-                    <span>{new Date(thread.created_at).toLocaleString('ja-JP')}</span>
-                    <span style={{ marginLeft: 'auto', color: '#5a3d8a' }}>返信 {getReplies(thread.id).length}件</span>
-                  </div>
+                  <div style={{ color: '#666', fontSize: '13px', marginTop: '10px' }}>{thread.author_name} · {new Date(thread.created_at).toLocaleString('ja-JP')} · 返信 {getReplies(thread.id).length}件</div>
                 </article>
               ))}
             </div>
           </div>
         )}
 
-        {/* ================= 掲示板詳細（返信画面） ================= */}
         {view === 'bbs_read' && activeThread && (
           <div>
             <button onClick={() => setView('bbs')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '20px' }}>← 戻る</button>
@@ -328,24 +325,22 @@ export default function RoboCupPortal() {
               <div style={{ marginBottom: '20px', fontSize: '14px', color: '#666' }}>{activeThread.author_name} - {new Date(activeThread.created_at).toLocaleString('ja-JP')}</div>
               <div>{renderContent(activeThread.content)}</div>
             </article>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '40px' }}>
               {getReplies(activeThread.id).map(reply => (
                 <div key={reply.id} style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', border: '1px solid #eee' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
                     <span style={{ fontWeight: 'bold', fontSize: '14px' }}>{reply.author_name}</span>
-                    {isAdmin && <button onClick={() => handleDeletePost(reply.id)} style={{ border: 'none', background: 'none', color: '#c62828', cursor: 'pointer' }}>🗑️</button>}
+                    {isAdmin && <button onClick={() => handleDeletePost(reply.id)} style={{ border: 'none', background: 'none', color: '#c62828' }}>🗑️</button>}
                   </div>
                   <div>{renderContent(reply.content)}</div>
                 </div>
               ))}
             </div>
-
             <div style={{ backgroundColor: '#f9f9f9', padding: '20px', borderRadius: '12px', border: '1px solid #ddd' }}>
               <textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} placeholder="返信を書く..." style={{ width: '100%', height: '80px', padding: '15px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <label style={{ cursor: 'pointer', fontSize: '13px', backgroundColor: '#fff', padding: '8px 12px', borderRadius: '8px', border: '1px solid #ccc' }}>
-                  📎 ファイル添付
+                  📎 添付
                   <input type="file" onChange={handleAttachFile} style={{ display: 'none' }} />
                 </label>
                 <button onClick={handleReplySubmit} disabled={loading} style={{ marginLeft: 'auto', backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 30px', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>返信する</button>
@@ -354,70 +349,46 @@ export default function RoboCupPortal() {
           </div>
         )}
 
-        {/* ================= ブログ一覧 ================= */}
         {view === 'blog_list' && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-              <h2 style={{ margin: 0 }}>技術・活動ブログ</h2>
+              <h2 style={{ margin: 0 }}>技術ブログ</h2>
               <button onClick={() => setView('blog_write')} style={{ backgroundColor: '#00c58e', color: '#fff', padding: '10px 25px', border: 'none', borderRadius: '25px', fontWeight: 'bold', cursor: 'pointer' }}>＋ 記事を書く</button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '25px' }}>
               {blogArticles.map(article => (
                 <article key={article.id} onClick={() => { setActiveArticle(article); setView('blog_read'); }} style={{ backgroundColor: '#fff', border: '1px solid #eee', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer' }}>
-                  <div style={{ height: '180px', backgroundColor: '#f0f0f0' }}>
-                    {article.image_url && <img src={article.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                  </div>
-                  <div style={{ padding: '20px' }}>
-                    <div style={{ fontSize: '12px', color: '#5a3d8a', fontWeight: 'bold', marginBottom: '5px' }}>{article.genre}</div>
-                    <h3 style={{ margin: '0 0 10px 0', fontSize: '18px' }}>{article.title}</h3>
-                    <div style={{ fontSize: '13px', color: '#888' }}>{article.author_name} · {new Date(article.created_at).toLocaleDateString('ja-JP')}</div>
-                  </div>
+                  <div style={{ height: '180px', backgroundColor: '#f0f0f0' }}>{article.image_url && <img src={article.image_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}</div>
+                  <div style={{ padding: '20px' }}><div style={{ fontSize: '12px', color: '#5a3d8a', fontWeight: 'bold' }}>{article.genre}</div><h3 style={{ margin: '5px 0' }}>{article.title}</h3></div>
                 </article>
               ))}
             </div>
           </div>
         )}
 
-        {/* ================= ブログ執筆 ================= */}
         {view === 'blog_write' && (
           <div style={{ backgroundColor: '#fff', padding: '40px', borderRadius: '15px', border: '1px solid #ddd', maxWidth: '800px', margin: '0 auto' }}>
             <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '20px' }}>← 戻る</button>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトル" style={{ width: '100%', fontSize: '28px', fontWeight: 'bold', border: 'none', borderBottom: '2px solid #eee', padding: '10px 0', marginBottom: '20px', outline: 'none' }} />
-            
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトル" style={{ width: '100%', fontSize: '28px', fontWeight: 'bold', border: 'none', borderBottom: '2px solid #eee', paddingBottom: '10px', marginBottom: '20px', outline: 'none' }} />
             <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
-              <input type="text" value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="ジャンル (例: プログラム/C++)" style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc', flexGrow: 1 }} />
-              <label style={{ cursor: 'pointer', padding: '8px 15px', backgroundColor: '#f0f0f0', borderRadius: '5px', border: '1px solid #ccc', fontSize: '14px' }}>
-                📷 カバー画像
-                <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} style={{ display: 'none' }} />
-              </label>
+              <input type="text" value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="ジャンル" style={{ padding: '8px', borderRadius: '5px', border: '1px solid #ccc', flexGrow: 1 }} />
+              <label style={{ cursor: 'pointer', padding: '8px 15px', backgroundColor: '#f0f0f0', borderRadius: '5px', border: '1px solid #ccc', fontSize: '14px' }}>📷 画像<input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} style={{ display: 'none' }} /></label>
             </div>
-
-            <div style={{ backgroundColor: '#f9f9f9', padding: '10px', borderRadius: '8px', marginBottom: '10px', display: 'flex', gap: '10px' }}>
-              <label style={{ cursor: 'pointer', fontSize: '13px', backgroundColor: '#fff', padding: '6px 12px', borderRadius: '5px', border: '1px solid #ccc' }}>
-                📎 ファイル/画像を本文に挿入
-                <input type="file" onChange={handleAttachFile} style={{ display: 'none' }} />
-              </label>
-            </div>
-
-            <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文を入力..." style={{ width: '100%', minHeight: '400px', fontSize: '16px', lineHeight: '1.8', border: 'none', outline: 'none', resize: 'vertical' }} />
-            <button onClick={handleBlogSubmit} disabled={loading} style={{ marginTop: '20px', width: '100%', backgroundColor: '#00c58e', color: '#fff', padding: '15px', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '18px', cursor: 'pointer' }}>記事を公開する</button>
+            <div style={{ marginBottom: '10px' }}><label style={{ cursor: 'pointer', fontSize: '13px', backgroundColor: '#eee', padding: '6px 12px', borderRadius: '5px' }}>📎 添付を挿入<input type="file" onChange={handleAttachFile} style={{ display: 'none' }} /></label></div>
+            <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文を入力..." style={{ width: '100%', minHeight: '400px', fontSize: '16px', border: 'none', outline: 'none', resize: 'vertical' }} />
+            <button onClick={handleBlogSubmit} disabled={loading} style={{ width: '100%', backgroundColor: '#00c58e', color: '#fff', padding: '15px', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>公開する</button>
           </div>
         )}
 
-        {/* ================= ブログ閲覧 ================= */}
         {view === 'blog_read' && activeArticle && (
-          <article style={{ maxWidth: '800px', margin: '0 auto', paddingBottom: '100px' }}>
-            <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '20px' }}>← 一覧に戻る</button>
-            {activeArticle.image_url && <img src={activeArticle.image_url} style={{ width: '100%', maxHeight: '400px', objectFit: 'cover', borderRadius: '12px', marginBottom: '30px' }} />}
-            <h1 style={{ fontSize: '36px', marginBottom: '10px' }}>{activeArticle.title}</h1>
-            <div style={{ color: '#666', marginBottom: '40px', borderBottom: '1px solid #eee', paddingBottom: '20px' }}>
-              {activeArticle.genre} | {activeArticle.author_name} | {new Date(activeArticle.created_at).toLocaleString('ja-JP')}
-              {isAdmin && <button onClick={() => handleDeletePost(activeArticle.id)} style={{ marginLeft: '20px', color: '#c62828', border: 'none', background: 'none', cursor: 'pointer' }}>🗑️ 記事を削除</button>}
-            </div>
+          <article style={{ maxWidth: '800px', margin: '0 auto' }}>
+            <button onClick={() => setView('blog_list')} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginBottom: '20px' }}>← 一覧へ</button>
+            {activeArticle.image_url && <img src={activeArticle.image_url} style={{ width: '100%', maxHeight: '400px', objectFit: 'cover', borderRadius: '12px' }} />}
+            <h1>{activeArticle.title}</h1>
+            <div style={{ borderBottom: '1px solid #eee', paddingBottom: '20px', marginBottom: '20px' }}>{activeArticle.author_name} · {new Date(activeArticle.created_at).toLocaleString('ja-JP')}</div>
             <div style={{ fontSize: '18px', lineHeight: '1.9' }}>{renderContent(activeArticle.content)}</div>
           </article>
         )}
-
       </main>
     </div>
   );
