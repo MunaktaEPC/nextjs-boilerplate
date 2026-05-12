@@ -1,4 +1,4 @@
-\"use client";
+"use client";
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
