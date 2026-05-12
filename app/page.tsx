@@ -95,8 +95,8 @@ export default function RoboCupPortalComplete() {
     }
   }
 
-  // 本文中にファイルを挿入する
-  async function handleFileInsert(e: React.ChangeEvent<HTMLInputElement>) {
+  // 本文中にファイルを挿入する（掲示板・ブログ共通）
+  async function handleFileInsert(e: React.ChangeEvent<HTMLInputElement>, target: 'post' | 'reply') {
     const file = e.target.files?.[0];
     if (!file) return;
     setLoading(true);
@@ -104,18 +104,22 @@ export default function RoboCupPortalComplete() {
     if (res) {
       const isImage = file.type.startsWith('image/');
       const tag = isImage ? `\n![画像](${res.url})\n` : `\n[📎 ${res.name}](${res.url})\n`;
+      
+      const targetContent = target === 'post' ? content : replyContent;
+      const setTargetContent = target === 'post' ? setContent : setReplyContent;
+
       const textarea = textareaRef.current;
-      if (textarea) {
+      if (textarea && target === 'post') { // 新規投稿時はカーソル位置に挿入
         const start = textarea.selectionStart;
         const end = textarea.selectionEnd;
-        const newContent = content.substring(0, start) + tag + content.substring(end);
-        setContent(newContent);
+        const newContent = targetContent.substring(0, start) + tag + targetContent.substring(end);
+        setTargetContent(newContent);
         setTimeout(() => {
           textarea.focus();
           textarea.setSelectionRange(start + tag.length, start + tag.length);
         }, 10);
       } else {
-        setContent(prev => prev + tag);
+        setTargetContent(prev => prev + tag);
       }
     }
     setLoading(false);
@@ -153,7 +157,7 @@ export default function RoboCupPortalComplete() {
     setLoading(false);
   }
 
-  // 削除処理（スレッド/ブログ/返信すべてに対応）
+  // 削除処理
   async function handleDeletePost(id: string, e?: React.MouseEvent) {
     if (e) e.stopPropagation();
     if (!confirm("この記事を削除してもよろしいですか？")) return;
@@ -206,6 +210,7 @@ export default function RoboCupPortalComplete() {
     }
   }
 
+  // コンテンツのレンダリング
   const renderContent = (text: string) => {
     if (!text) return null;
     const parts = text.split(/(!\[.*?\]\(.*?\)|\[.*?\]\(.*?\))/g);
@@ -225,6 +230,7 @@ export default function RoboCupPortalComplete() {
   return (
     <div style={{ minHeight: '100vh', backgroundColor: '#f8f9fa', color: '#333', fontFamily: 'sans-serif' }}>
       
+      {/* ヘッダー */}
       <header style={{ backgroundColor: '#fff', borderBottom: '3px solid #5a3d8a', padding: '15px 40px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 100 }}>
         <h1 onClick={() => setView('home')} style={{ margin: 0, fontSize: '22px', color: '#5a3d8a', cursor: 'pointer', fontWeight: '900' }}>ロボカップ情報共有</h1>
         <div onClick={() => setView('profile')} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '6px 15px', backgroundColor: '#f3eef7', borderRadius: '30px' }}>
@@ -233,6 +239,7 @@ export default function RoboCupPortalComplete() {
         </div>
       </header>
 
+      {/* ナビゲーション */}
       <nav style={{ padding: '12px 40px', display: 'flex', gap: '10px', backgroundColor: '#fff', borderBottom: '1px solid #eee' }}>
         <button onClick={() => setView('home')} style={{ padding: '8px 25px', border: 'none', borderRadius: '5px', backgroundColor: view === 'home' ? '#5a3d8a' : 'transparent', color: view === 'home' ? '#fff' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>🏠 ホーム</button>
         <button onClick={() => setView('bbs')} style={{ padding: '8px 25px', border: 'none', borderRadius: '5px', backgroundColor: view.startsWith('bbs') ? '#5a3d8a' : 'transparent', color: view.startsWith('bbs') ? '#fff' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>💬 掲示板</button>
@@ -254,7 +261,7 @@ export default function RoboCupPortalComplete() {
           </div>
         )}
 
-        {/* 掲示板一覧 (元のリッチなデザイン) */}
+        {/* 掲示板一覧 */}
         {view === 'bbs' && (
           <div>
             <div style={{ backgroundColor: '#f3eef7', padding: '25px', borderRadius: '15px', marginBottom: '30px', border: '1px solid #e0d5ed' }}>
@@ -262,7 +269,7 @@ export default function RoboCupPortalComplete() {
               <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトル" style={{ width: '100%', padding: '12px', marginBottom: '10px', borderRadius: '8px', border: '1px solid #ccc' }} />
               <div style={{ marginBottom: '10px' }}>
                 <label style={{ cursor: 'pointer', backgroundColor: '#fff', padding: '6px 15px', borderRadius: '5px', border: '1px solid #ccc', fontSize: '13px', fontWeight: 'bold' }}>
-                  📎 画像/ファイルを挿入 <input type="file" onChange={handleFileInsert} style={{ display: 'none' }} />
+                  📎 画像/ファイルを挿入 <input type="file" onChange={(e) => handleFileInsert(e, 'post')} style={{ display: 'none' }} />
                 </label>
               </div>
               <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)} placeholder="本文" style={{ width: '100%', height: '120px', padding: '12px', borderRadius: '8px', border: '1px solid #ccc' }} />
@@ -278,7 +285,7 @@ export default function RoboCupPortalComplete() {
           </div>
         )}
 
-        {/* 掲示板詳細 (2ちゃんねる風・わかりやすい返信欄) */}
+        {/* 掲示板詳細（2ちゃん風 ＋ 画像挿入機能） */}
         {view === 'bbs_read' && activeThread && (
           <div style={{ maxWidth: '900px', margin: '0 auto' }}>
             <button onClick={() => setView('bbs')} style={{ marginBottom: '20px' }}>← 掲示板に戻る</button>
@@ -289,7 +296,7 @@ export default function RoboCupPortalComplete() {
                 {isAdmin && <button onClick={() => handleDeletePost(activeThread.id)} style={{ color: 'red', border: 'none', background: 'none' }}>スレッドを削除</button>}
               </div>
 
-              {/* 1レス目 */}
+              {/* レス1 */}
               <div style={{ marginBottom: '30px' }}>
                 <div style={{ fontSize: '14px', color: '#666', marginBottom: '5px' }}>
                   <span style={{ color: 'green', fontWeight: 'bold' }}>1</span> : 
@@ -299,7 +306,7 @@ export default function RoboCupPortalComplete() {
                 <div style={{ paddingLeft: '15px', fontSize: '17px', lineHeight: '1.8' }}>{renderContent(activeThread.content)}</div>
               </div>
 
-              {/* 返信一覧 */}
+              {/* レス一覧 */}
               {getReplies(activeThread.id).map((r, i) => (
                 <div key={r.id} style={{ marginBottom: '25px', borderTop: '1px solid #eee', paddingTop: '15px' }}>
                   <div style={{ fontSize: '14px', color: '#666', marginBottom: '5px' }}>
@@ -313,33 +320,35 @@ export default function RoboCupPortalComplete() {
               ))}
             </div>
 
-            {/* 書き込み欄（2ちゃん風わかりやすいデザイン） */}
+            {/* 2ちゃん風返信フォーム */}
             <div style={{ backgroundColor: '#f3eef7', padding: '30px', borderRadius: '20px', border: '1px solid #e0d5ed' }}>
               <h4 style={{ marginTop: 0, marginBottom: '15px' }}>💬 スレッドに返信する</h4>
               <div style={{ marginBottom: '10px' }}>
                 <span style={{ fontSize: '14px', fontWeight: 'bold' }}>名前：</span>
                 <input value={profileName} disabled style={{ backgroundColor: '#eee', border: '1px solid #ccc', padding: '5px 10px', borderRadius: '5px', width: '200px' }} />
-                <span style={{ fontSize: '12px', color: '#888', marginLeft: '10px' }}>※設定から変更できます</span>
               </div>
+              
+              <div style={{ marginBottom: '10px' }}>
+                <label style={{ cursor: 'pointer', backgroundColor: '#fff', padding: '6px 12px', borderRadius: '5px', border: '1px solid #ccc', fontSize: '13px', fontWeight: 'bold', display: 'inline-block' }}>
+                  📸 画像・ファイルを挿入 <input type="file" onChange={(e) => handleFileInsert(e, 'reply')} style={{ display: 'none' }} />
+                </label>
+                <span style={{ fontSize: '11px', color: '#888', marginLeft: '10px' }}>※画像は文末に追加されます</span>
+              </div>
+
               <textarea 
                 value={replyContent} 
                 onChange={(e) => setReplyContent(e.target.value)} 
-                placeholder="内容を入力してください..." 
+                placeholder="内容を入力..." 
                 style={{ width: '100%', height: '150px', padding: '15px', borderRadius: '10px', border: '1px solid #ccc', marginBottom: '15px', fontSize: '16px' }} 
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                 <label style={{ cursor: 'pointer', backgroundColor: '#fff', padding: '8px 15px', borderRadius: '5px', border: '1px solid #ccc', fontSize: '13px' }}>
-                  📸 画像挿入 <input type="file" onChange={handleFileInsert} style={{ display: 'none' }} />
-                </label>
-                <button onClick={() => handleReplySubmit(activeThread.id)} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '12px 40px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}>
-                  書き込む
-                </button>
-              </div>
+              <button onClick={() => handleReplySubmit(activeThread.id)} style={{ backgroundColor: '#5a3d8a', color: '#fff', padding: '12px 40px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px', width: '100%' }}>
+                書き込む
+              </button>
             </div>
           </div>
         )}
 
-        {/* ブログ一覧 (元のデザイン維持) */}
+        {/* ブログ一覧 */}
         {view === 'blog_list' && (
           <div style={{ display: 'flex', gap: '30px' }}>
             <aside style={{ width: '220px' }}>
@@ -372,9 +381,9 @@ export default function RoboCupPortalComplete() {
           </div>
         )}
 
-        {/* ブログ詳細 (元のデザイン維持) */}
+        {/* ブログ詳細 */}
         {view === 'blog_read' && activeArticle && (
-          <article style={{ maxWidth: '850px', margin: '0 auto', backgroundColor: '#fff', borderRadius: '25px', padding: '40px', border: '1px solid #eee' }}>
+          <article style={{ maxWidth: '850px', margin: '0 auto', backgroundColor: '#fff', borderRadius: '25px', padding: '40px', border: '1px solid #eee', boxShadow: '0 10px 30px rgba(0,0,0,0.05)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
               <button onClick={() => setView('blog_list')}>← 戻る</button>
               {isAdmin && <button onClick={() => handleDeletePost(activeArticle.id)} style={{ color: 'red', border: 'none', background: 'none' }}>🗑️ 削除</button>}
@@ -394,7 +403,7 @@ export default function RoboCupPortalComplete() {
           </article>
         )}
 
-        {/* ブログ投稿 (元のデザイン維持) */}
+        {/* ブログ投稿 */}
         {view === 'blog_write' && (
           <div style={{ maxWidth: '900px', margin: '0 auto', backgroundColor: '#fff', padding: '40px', borderRadius: '25px', border: '1px solid #ddd' }}>
             <button onClick={() => setView('blog_list')} style={{ marginBottom: '20px' }}>← キャンセル</button>
@@ -420,7 +429,7 @@ export default function RoboCupPortalComplete() {
             </div>
             <div style={{ backgroundColor: '#f3eef7', padding: '15px', borderRadius: '12px', marginBottom: '15px' }}>
               <label style={{ cursor: 'pointer', backgroundColor: '#5a3d8a', color: '#fff', padding: '10px 20px', borderRadius: '8px', fontWeight: 'bold' }}>
-                📸 本文に画像を挿入 <input type="file" onChange={handleFileInsert} style={{ display: 'none' }} />
+                📸 本文に画像を挿入 <input type="file" onChange={(e) => handleFileInsert(e, 'post')} style={{ display: 'none' }} />
               </label>
             </div>
             <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="タイトル..." style={{ width: '100%', fontSize: '28px', fontWeight: 'bold', marginBottom: '20px', border: 'none', borderBottom: '2px solid #eee', outline: 'none' }} />
@@ -429,7 +438,7 @@ export default function RoboCupPortalComplete() {
           </div>
         )}
 
-        {/* 設定画面 (元のデザイン維持) */}
+        {/* 設定画面 */}
         {view === 'profile' && (
           <section style={{ maxWidth: '500px', margin: '0 auto', backgroundColor: '#fff', padding: '40px', borderRadius: '25px', border: '1px solid #ddd' }}>
             <h2 style={{ textAlign: 'center', color: '#5a3d8a' }}>ユーザー設定</h2>
@@ -440,15 +449,15 @@ export default function RoboCupPortalComplete() {
             <div style={{ marginBottom: '30px' }}>
               <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '10px' }}>アイコン</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                <img src={avatarPreview || 'https://via.placeholder.com/70'} style={{ width: '70px', height: '70px', borderRadius: '50%', objectFit: 'cover' }} />
+                <img src={avatarPreview || 'https://via.placeholder.com/70'} style={{ width: '70px', height: '70px', borderRadius: '50%', objectFit: 'cover', border: '2px solid #5a3d8a' }} />
                 <input type="file" onChange={async (e) => { 
                   const f = e.target.files?.[0]; 
-                  if (f) { const res = await uploadFile(f); if (res) { setProfileAvatar(res.url); setAvatarPreview(res.url); } }
+                  if (f) { setAvatarFile(f); setAvatarPreview(URL.createObjectURL(f)); }
                 }} style={{ fontSize: '12px' }} />
               </div>
             </div>
             <div style={{ padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '15px', marginBottom: '20px' }}>
-              <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>管理者用パスワード</label>
+              <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>管理者パスワード</label>
               <input type="password" value={adminPassInput} onChange={(e) => setAdminPassInput(e.target.value)} placeholder="削除権限用" style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
             </div>
             <button onClick={saveProfile} style={{ width: '100%', backgroundColor: '#5a3d8a', color: '#fff', padding: '15px', borderRadius: '10px', border: 'none', fontWeight: 'bold', cursor: 'pointer' }}>保存して戻る</button>
