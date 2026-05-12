@@ -75,11 +75,26 @@ export default function RoboCupPortalComplete() {
   const getReplies = (parentId: string) => posts.filter(p => p.parent_id === parentId).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
   async function uploadFile(file: File) {
-    const fileName = `${Date.now()}_${file.name}`;
-    const { data, error } = await supabase.storage.from('images').upload(fileName, file);
-    if (error) return null;
-    const { data: pub } = supabase.storage.from('images').getPublicUrl(fileName);
-    return { url: pub.publicUrl, name: file.name };
+    try {
+      // ファイル名の拡張子（.pngなど）を取り出す
+      const fileExt = file.name.split('.').pop();
+      // 日本語を含まないランダムな英数字のファイル名を作る
+      const fileName = `${Math.random().toString(36).slice(-8)}_${Date.now()}.${fileExt}`;
+
+      const { data, error } = await supabase.storage.from('images').upload(fileName, file);
+      
+      if (error) {
+        console.error("Upload Error Details:", error);
+        alert("アップロード失敗: " + error.message);
+        throw error;
+      }
+      
+      const { data: pub } = supabase.storage.from('images').getPublicUrl(fileName);
+      return { url: pub.publicUrl, name: file.name };
+    } catch (err) {
+      console.error(err);
+      return null;
+    }
   }
 
   // ★画像追加ロジックの修正
